@@ -188,4 +188,11 @@
 
   S.applyLang();
   if (S.consumeQueryAndShare) S.consumeQueryAndShare();
+  /* Auto-plan when both ends arrived via URL */
+  if (S.fromPlace && S.toPlace) {
+    const params = new URLSearchParams(location.search);
+    if (params.get("from") && (params.get("to") || params.get("dest") || params.get("destination"))) {
+      setTimeout(() => plan(), 200);
+    }
+  }
 })();
