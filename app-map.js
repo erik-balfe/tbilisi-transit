@@ -34,6 +34,16 @@
     layers: [{ id: "osm", type: "raster", source: "osm" }],
   };
 
+  /*
+   * Touch / pan diagnosis + fix:
+   * - MapLibre supports 1-finger dragPan and 2-finger pinch (touchZoomRotate).
+   * - Prior issues: (1) oversized bottom sheet left almost no map hit area;
+   *   (2) no explicit cooperativeGestures:false / dragPan.enable;
+   *   (3) missing touch-action:none on #map canvas (browser could steal gestures);
+   *   (4) panel resize without reliable map.resize().
+   * Fixes: mid-height sheet by default, touch-action CSS, explicit gesture flags,
+   * disable rotation so 2-finger stays pinch+pan, resize after every sheet change.
+   */
   const map = new maplibregl.Map({
     container: "map",
     style: OSM_STYLE,
@@ -43,9 +53,27 @@
     attributionControl: true,
     dragRotate: false,
     pitchWithRotate: false,
+    touchPitch: false,
+    cooperativeGestures: false,
+    dragPan: true,
+    touchZoomRotate: true,
+    scrollZoom: true,
+    boxZoom: true,
+    keyboard: true,
+    doubleClickZoom: true,
   });
 
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+
+  map.on("load", () => {
+    /* Ensure handlers are on after style settles */
+    map.dragPan.enable();
+    map.touchZoomRotate.enable();
+    map.touchZoomRotate.disableRotation(); /* 2-finger = pinch zoom (+ pan), no rotate */
+    map.scrollZoom.enable();
+    ensureRouteLayers();
+    map.resize();
+  });
 
   let fromMarker = null;
   let toMarker = null;
@@ -75,9 +103,11 @@
     const hint = S.$("map-hint");
     if (!hint) return;
     hint.textContent = S.activePin === "to" ? S.t("mapHintTo") : S.t("mapHintFrom");
-    S.$("pin-from").classList.toggle("active", S.activePin === "from");
-    S.$("pin-to").classList.toggle("active", S.activePin === "to");
     refreshPinStyles();
+    if (S.armPinField) {
+      S.$("from-field").classList.toggle("armed", S.activePin === "from");
+      S.$("to-field").classList.toggle("armed", S.activePin === "to");
+    }
   };
 
   function applyCoords(which, lat, lon, name) {
@@ -87,6 +117,10 @@
     placeMarker(which, lat, lon);
     S.statusEl.classList.remove("error");
     S.statusEl.textContent = which === "from" ? S.t("droppedFrom") : S.t("droppedTo");
+    /* Reverse-geocode unless caller already provided a real name */
+    if (!name || S.isCoordLabel(name)) {
+      if (S.resolvePinLabel) S.resolvePinLabel(which, lat, lon);
+    }
   }
 
   function placeMarker(which, lat, lon) {
@@ -185,14 +219,18 @@
     const collapsed = panel && panel.getAttribute("data-collapsed") === "true";
     const mobile = window.matchMedia("(max-width: 799px)").matches;
     if (mobile) {
-      const h = collapsed ? 56 : Math.min(window.innerHeight * 0.45, 360);
-      return { top: 48, bottom: h + 16, left: 24, right: 24 };
+      const sheet = panel ? panel.getAttribute("data-sheet") : "mid";
+      let h = 56;
+      if (!collapsed) {
+        if (sheet === "full") h = Math.min(window.innerHeight * 0.55, 480);
+        else h = Math.min(window.innerHeight * 0.38, 340);
+      }
+      return { top: 48, bottom: h + 12, left: 20, right: 20 };
     }
-    const w = collapsed ? 40 : Math.min(400, window.innerWidth * 0.4) + 24;
-    return { top: 40, bottom: 40, left: w, right: 40 };
+    const w = collapsed ? 40 : Math.min(380, window.innerWidth * 0.38) + 20;
+    return { top: 36, bottom: 36, left: w, right: 36 };
   };
 
-  /* Google / OTP encoded polyline decoder (precision 5 or 6) */
   S.decodePolyline = function (encoded, precision) {
     if (!encoded) return [];
     const factor = Math.pow(10, precision == null ? 5 : precision);
@@ -226,119 +264,186 @@
     return coordinates;
   };
 
-  function modeStroke(mode, leg) {
-    const m = (mode || "WALK").toUpperCase();
-    if (leg && leg.routeColor && /^[0-9a-fA-F]{6}$/.test(leg.routeColor)) {
-      return "#" + leg.routeColor;
-    }
-    if (m === "WALK") return "#8b9aab";
-    if (m === "BUS") return "#3db8a0";
-    if (["SUBWAY", "METRO", "RAIL", "TRAM"].includes(m)) return "#e07a3a";
-    if (["GONDOLA", "CABLE_CAR", "FUNICULAR"].includes(m)) return "#7b6cf0";
-    return "#3db8a0";
-  }
-
   function ensureRouteLayers() {
-    if (!map.getSource("route")) {
-      map.addSource("route", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      map.addLayer({
-        id: "route-casing",
-        type: "line",
-        source: "route",
-        filter: ["!=", ["get", "walk"], 1],
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: {
-          "line-color": "#0a1210",
-          "line-width": 9,
-          "line-opacity": 0.55,
-        },
-      });
-      map.addLayer({
-        id: "route-transit",
-        type: "line",
-        source: "route",
-        filter: ["!=", ["get", "walk"], 1],
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 6,
-          "line-opacity": 0.95,
-        },
-      });
-      map.addLayer({
-        id: "route-walk",
-        type: "line",
-        source: "route",
-        filter: ["==", ["get", "walk"], 1],
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 3.5,
-          "line-opacity": 0.9,
-          "line-dasharray": [1.2, 1.2],
-        },
-      });
+    if (map.getSource("routes")) {
+      routeReady = true;
+      return;
     }
+    map.addSource("routes", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    /* Dim alternatives first (under), then selected on top */
+    map.addLayer({
+      id: "routes-alt-casing",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["!=", ["get", "selected"], 1], ["!=", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": "#0a1210",
+        "line-width": 6,
+        "line-opacity": 0.35,
+      },
+    });
+    map.addLayer({
+      id: "routes-alt",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["!=", ["get", "selected"], 1], ["!=", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 3.5,
+        "line-opacity": 0.55,
+      },
+    });
+    map.addLayer({
+      id: "routes-alt-walk",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["!=", ["get", "selected"], 1], ["==", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 2.5,
+        "line-opacity": 0.45,
+        "line-dasharray": [1.2, 1.4],
+      },
+    });
+    map.addLayer({
+      id: "routes-sel-casing",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["==", ["get", "selected"], 1], ["!=", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": "#0a1210",
+        "line-width": 10,
+        "line-opacity": 0.6,
+      },
+    });
+    map.addLayer({
+      id: "routes-sel",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["==", ["get", "selected"], 1], ["!=", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 6.5,
+        "line-opacity": 0.98,
+      },
+    });
+    map.addLayer({
+      id: "routes-sel-walk",
+      type: "line",
+      source: "routes",
+      filter: ["all", ["==", ["get", "selected"], 1], ["==", ["get", "walk"], 1]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 3.5,
+        "line-opacity": 0.9,
+        "line-dasharray": [1.2, 1.2],
+      },
+    });
     routeReady = true;
   }
 
+  function legCoords(leg) {
+    const geom = leg.legGeometry || {};
+    const precision = geom.precision != null ? geom.precision : 5;
+    let coords = S.decodePolyline(geom.points || "", precision);
+    if (coords.length < 2 && leg.from && leg.to) {
+      coords = [
+        [leg.from.lon, leg.from.lat],
+        [leg.to.lon, leg.to.lat],
+      ];
+    }
+    return coords;
+  }
+
   S.clearRoute = function () {
-    if (!routeReady || !map.getSource("route")) return;
-    map.getSource("route").setData({ type: "FeatureCollection", features: [] });
+    if (!routeReady || !map.getSource("routes")) return;
+    map.getSource("routes").setData({ type: "FeatureCollection", features: [] });
   };
 
-  S.drawItineraryRoute = function (it) {
-    if (!it) {
+  /** Draw all itineraries at once; selectedIdx is thicker/brighter */
+  S.drawAllItineraries = function (list, selectedIdx, opts) {
+    opts = opts || {};
+    if (!list || !list.length) {
       S.clearRoute();
       return;
     }
+    const sel = selectedIdx == null ? 0 : selectedIdx;
+    S.selectedItin = sel;
     const run = () => {
       ensureRouteLayers();
       const features = [];
       const bounds = new maplibregl.LngLatBounds();
       let any = false;
-      (it.legs || []).forEach((leg, i) => {
-        const geom = leg.legGeometry || {};
-        const precision = geom.precision != null ? geom.precision : 5;
-        let coords = S.decodePolyline(geom.points || "", precision);
-        if (coords.length < 2 && leg.from && leg.to) {
-          coords = [
-            [leg.from.lon, leg.from.lat],
-            [leg.to.lon, leg.to.lat],
-          ];
-        }
-        if (coords.length < 2) return;
-        const mode = (leg.mode || "WALK").toUpperCase();
-        const walk = mode === "WALK" ? 1 : 0;
-        features.push({
-          type: "Feature",
-          properties: {
-            color: modeStroke(mode, leg),
-            walk: walk,
-            mode: mode,
-            idx: i,
-          },
-          geometry: { type: "LineString", coordinates: coords },
-        });
-        coords.forEach((c) => {
-          bounds.extend(c);
-          any = true;
+      const colors = S.ITIN_COLORS || ["#3db8a0", "#5b8def", "#e07a3a"];
+      list.forEach((it, itinIdx) => {
+        const color = colors[itinIdx % colors.length];
+        const selected = itinIdx === sel ? 1 : 0;
+        (it.legs || []).forEach((leg, i) => {
+          const coords = legCoords(leg);
+          if (coords.length < 2) return;
+          const mode = (leg.mode || "WALK").toUpperCase();
+          const walk = mode === "WALK" ? 1 : 0;
+          /* Walk legs use muted gray for alts; selected walk stays gray dashed */
+          const lineColor = walk ? (selected ? "#8b9aab" : "#6a7a8a") : color;
+          features.push({
+            type: "Feature",
+            properties: {
+              color: lineColor,
+              walk: walk,
+              mode: mode,
+              itin: itinIdx,
+              selected: selected,
+              idx: i,
+            },
+            geometry: { type: "LineString", coordinates: coords },
+          });
+          if (selected || opts.fitAll) {
+            coords.forEach((c) => {
+              bounds.extend(c);
+              any = true;
+            });
+          }
         });
       });
-      map.getSource("route").setData({ type: "FeatureCollection", features: features });
-      if (any && !bounds.isEmpty()) {
-        map.fitBounds(bounds, { padding: S.mapPadding(), maxZoom: 15, duration: 700 });
+      /* If nothing selected extended bounds, fit all */
+      if (!any) {
+        features.forEach((f) => {
+          (f.geometry.coordinates || []).forEach((c) => {
+            bounds.extend(c);
+            any = true;
+          });
+        });
+      }
+      map.getSource("routes").setData({ type: "FeatureCollection", features: features });
+      if (any && !bounds.isEmpty() && opts.fit !== false) {
+        map.fitBounds(bounds, { padding: S.mapPadding(), maxZoom: 15, duration: opts.duration || 700 });
       }
     };
     if (map.isStyleLoaded()) run();
     else map.once("load", run);
   };
 
+  /* Back-compat single draw */
+  S.drawItineraryRoute = function (it) {
+    if (!it) {
+      S.clearRoute();
+      return;
+    }
+    const list = S.lastItineraries && S.lastItineraries.length ? S.lastItineraries : [it];
+    const idx = list.indexOf(it);
+    S.drawAllItineraries(list, idx >= 0 ? idx : 0);
+  };
+
   map.on("click", (e) => {
-    /* Ignore clicks that hit markers (they stopPropagation), or UI */
     let { lng, lat } = e.lngLat;
     if (!S.inTbilisi(lat, lng)) {
       S.statusEl.textContent = S.t("outsideCity");
@@ -348,33 +453,46 @@
     applyCoords(S.activePin, lat, lng);
   });
 
-  S.$("pin-from").addEventListener("click", () => {
-    S.activePin = "from";
-    S.updateMapHint();
-  });
-  S.$("pin-to").addEventListener("click", () => {
-    S.activePin = "to";
-    S.updateMapHint();
-  });
-
-  /* Panel collapse for max map space */
+  /* Panel sheet: mid ↔ full ↔ collapsed for max map + gestures */
   const panel = S.$("panel");
   const toggle = S.$("panel-toggle");
+
+  function resizeMapSoon() {
+    requestAnimationFrame(() => {
+      map.resize();
+      setTimeout(() => map.resize(), 80);
+    });
+  }
+
+  S.afterPanelLayout = resizeMapSoon;
+
   function setCollapsed(collapsed) {
     if (!panel) return;
     panel.setAttribute("data-collapsed", collapsed ? "true" : "false");
     if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    setTimeout(() => map.resize(), 60);
+    resizeMapSoon();
   }
+
+  function cycleSheet() {
+    if (!panel) return;
+    const collapsed = panel.getAttribute("data-collapsed") === "true";
+    const sheet = panel.getAttribute("data-sheet") || "mid";
+    if (collapsed) {
+      panel.setAttribute("data-sheet", "mid");
+      setCollapsed(false);
+      return;
+    }
+    if (sheet === "mid") {
+      panel.setAttribute("data-sheet", "full");
+      resizeMapSoon();
+      return;
+    }
+    /* full → collapse for max map */
+    setCollapsed(true);
+  }
+
   if (toggle) {
-    toggle.addEventListener("click", () => {
-      const now = panel.getAttribute("data-collapsed") === "true";
-      setCollapsed(!now);
-    });
-  }
-  /* Mobile starts slightly open; user can collapse */
-  if (window.matchMedia("(max-width: 799px)").matches) {
-    setCollapsed(false);
+    toggle.addEventListener("click", cycleSheet);
   }
 
   S.map = map;
@@ -390,18 +508,18 @@
   };
 
   S.expandPanel = function () {
+    if (panel) panel.setAttribute("data-sheet", "mid");
     setCollapsed(false);
   };
   S.collapsePanel = function () {
     setCollapsed(true);
   };
+  S.setSheet = function (sheet) {
+    if (panel) panel.setAttribute("data-sheet", sheet);
+    setCollapsed(false);
+  };
 
-  map.on("load", () => {
-    ensureRouteLayers();
-    map.resize();
-  });
   window.addEventListener("resize", () => map.resize());
-  /* Fix size after fonts / layout settle */
   setTimeout(() => map.resize(), 80);
   setTimeout(() => map.resize(), 400);
 

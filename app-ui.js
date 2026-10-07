@@ -1,13 +1,15 @@
 (function () {
-  const { API, PRESETS, I18N, TBILISI } = window.TT;
+  const { API, PRESETS, I18N, TBILISI, ITIN_COLORS } = window.TT;
   const S = (window.__tt = {
-    API, PRESETS, I18N, TBILISI,
+    API, PRESETS, I18N, TBILISI, ITIN_COLORS,
     lang: localStorage.getItem("tt-lang") || "en",
     fromPlace: null,
     toPlace: null,
     activePin: "from",
     timers: { from: null, to: null },
-    suppressMapSync: false,
+    reverseSeq: { from: 0, to: 0 },
+    selectedItin: 0,
+    lastItineraries: [],
   });
   const $ = (id) => document.getElementById(id);
   S.$ = $;
@@ -40,30 +42,43 @@
       Math.min(b.lonMax, Math.max(b.lonMin, lon)),
     ];
   };
+  S.isCoordLabel = function (name) {
+    if (!name) return true;
+    return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(String(name).trim());
+  };
   S.applyLang = function () {
     document.documentElement.lang = S.lang;
     $("title").textContent = S.t("title");
     const mini = $("title-mini");
     if (mini) mini.textContent = S.t("title");
-    $("subtitle").textContent = S.t("subtitle");
+    const sheetHint = $("sheet-hint");
+    if (sheetHint) sheetHint.textContent = S.t("sheetOpen");
     $("label-from").textContent = S.t("from");
     $("label-to").textContent = S.t("to");
     S.goBtn.textContent = S.t("go");
     $("swap").title = S.t("swap");
     $("swap").setAttribute("aria-label", S.t("swap"));
-    $("preset-fs").textContent = S.t("presetFS");
-    $("preset-sf").textContent = S.t("presetSF");
+    const pfs = $("preset-fs");
+    const psf = $("preset-sf");
+    if (pfs) pfs.textContent = S.t("presetFS");
+    if (psf) psf.textContent = S.t("presetSF");
     $("footer").innerHTML = S.t("footer");
     $("lang-en").classList.toggle("active", S.lang === "en");
     $("lang-ka").classList.toggle("active", S.lang === "ka");
-    $("pin-from").textContent = S.t("pinFrom");
-    $("pin-to").textContent = S.t("pinTo");
-    $("label-paste").textContent = S.t("paste");
+    const more = $("label-more");
+    if (more) more.textContent = S.t("more");
+    const lp = $("label-paste");
+    if (lp) lp.textContent = S.t("paste");
+    const le = $("label-examples");
+    if (le) le.textContent = S.t("examples");
     $("use-as-from").textContent = S.t("useAsFrom");
     $("use-as-to").textContent = S.t("useAsTo");
+    const editChip = $("edit-trip-chip");
+    if (editChip) editChip.textContent = S.t("edit");
     if (S.updateMapHint) S.updateMapHint();
-    if (S.fromPlace) S.fromInput.value = S.displayName(S.fromPlace);
-    if (S.toPlace) S.toInput.value = S.displayName(S.toPlace);
+    if (S.fromPlace && !S.isCoordLabel(S.fromPlace.name)) S.fromInput.value = S.displayName(S.fromPlace);
+    if (S.toPlace && !S.isCoordLabel(S.toPlace.name)) S.toInput.value = S.displayName(S.toPlace);
+    if (S.updateTripSummary) S.updateTripSummary();
   };
   S.formatTime = function (iso) {
     if (!iso) return "—";
@@ -100,7 +115,6 @@
     const pool = (results || []).filter((r) =>
       r && typeof r.lat === "number" && typeof r.lon === "number" && S.inTbilisi(r.lat, r.lon)
     );
-    /* Prefer GE + STOP, discard foreign Freedom Squares etc. */
     const ge = pool.filter((r) => !r.country || r.country === "GE");
     const use = ge.length ? ge : pool;
     const stops = use.filter((r) => r.type === "STOP");
@@ -116,13 +130,12 @@
     const res = await fetch(S.API + path, { headers: { Accept: "application/json" } });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error("HTTP " + res.status + (text ? ": " + text.slice(0, 120) : ""));
+      throw new Error("HTTP " + res.status + (text ? ": " + text.slice(0, 80) : ""));
     }
     return res.json();
   };
   S.nominatimSearch = async function (text) {
     const b = S.TBILISI;
-    /* viewbox = left,top,right,bottom = lonMax? Nominatim: left,top,right,bottom = west,north,east,south */
     const viewbox = [b.lonMin, b.latMax, b.lonMax, b.latMin].join(",");
     const url =
       "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6" +
@@ -151,6 +164,41 @@
       })
       .filter(Boolean);
   };
+
+  /** Friendly label from Nominatim reverse JSON — never raw coords */
+  S.friendlyFromNominatim = function (data) {
+    if (!data) return null;
+    const addr = data.address || {};
+    const road =
+      addr.road || addr.pedestrian || addr.footway || addr.path ||
+      addr.neighbourhood || addr.suburb || addr.quarter || addr.city_district;
+    const amenity = addr.amenity || addr.tourism || addr.shop || addr.building || addr.public_building;
+    const area = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || addr.city;
+    if (data.name && data.name.length < 60 && !S.isCoordLabel(data.name)) {
+      if (area && area !== data.name) return data.name + " · " + area;
+      return data.name;
+    }
+    if (amenity && road) return amenity + " · " + road;
+    if (amenity) return amenity + (area ? " · " + area : "");
+    if (road && area) return road + " · " + area;
+    if (road) return road;
+    if (area) return S.t("droppedPin") + " · " + area;
+    const first = (data.display_name || "").split(",")[0];
+    if (first && !S.isCoordLabel(first)) return first;
+    return S.t("droppedPin");
+  };
+
+  S.reverseGeocode = async function (lat, lon) {
+    const url =
+      "https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=17" +
+      "&lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" },
+    });
+    if (!res.ok) return null;
+    return S.friendlyFromNominatim(await res.json());
+  };
+
   S.geocode = async function (text) {
     const q = encodeURIComponent(text.trim());
     const bias = S.TBILISI.center[0] + "," + S.TBILISI.center[1];
@@ -179,8 +227,8 @@
     return { name: r.name, lat: r.lat, lon: r.lon, id: r.id, type: r.type, country: r.country || "GE" };
   };
   S.placeFromLatLon = function (lat, lon, name) {
-    const n = name || (lat.toFixed(5) + ", " + lon.toFixed(5));
-    return { name: n, lat, lon, type: "PLACE", country: "GE" };
+    const n = name || S.t("droppedPin");
+    return { name: n, lat, lon, type: "PLACE", country: "GE", pendingLabel: !name };
   };
   S.setPlace = function (which, place, inputEl, opts) {
     opts = opts || {};
@@ -191,9 +239,41 @@
       S.toPlace = place;
       S.toInput.classList.toggle("has-place", !!place);
     }
-    if (place && inputEl) inputEl.value = S.displayName(place);
+    if (place && inputEl) {
+      const label = S.displayName(place);
+      /* Never show raw lat,lon in the field */
+      inputEl.value = S.isCoordLabel(label) ? S.t("droppedPin") : label;
+    }
     if (!opts.skipMap && S.syncMapMarkers) S.syncMapMarkers();
+    if (S.updateTripSummary) S.updateTripSummary();
   };
+
+  /** After pin drop: show friendly placeholder, then reverse-geocode */
+  S.resolvePinLabel = async function (which, lat, lon) {
+    const seq = ++S.reverseSeq[which];
+    const input = which === "from" ? S.fromInput : S.toInput;
+    const place = which === "from" ? S.fromPlace : S.toPlace;
+    if (place && place.lat === lat && place.lon === lon) {
+      place.name = S.t("droppedPin");
+      place.pendingLabel = true;
+      input.value = place.name;
+    }
+    try {
+      const name = await S.reverseGeocode(lat, lon);
+      if (seq !== S.reverseSeq[which]) return;
+      const cur = which === "from" ? S.fromPlace : S.toPlace;
+      if (!cur || Math.abs(cur.lat - lat) > 1e-6 || Math.abs(cur.lon - lon) > 1e-6) return;
+      if (name) {
+        cur.name = name;
+        cur.pendingLabel = false;
+        input.value = name;
+        if (S.updateTripSummary) S.updateTripSummary();
+      }
+    } catch (e) {
+      /* keep "Dropped pin" */
+    }
+  };
+
   S.renderSuggest = function (box, items, which, inputEl) {
     box.innerHTML = "";
     if (!items.length) { box.classList.remove("open"); return; }
@@ -230,10 +310,41 @@
         S.renderSuggest(box, await S.geocode(text), which, inputEl);
         S.statusEl.textContent = "";
       } catch (err) {
-        S.statusEl.textContent = S.t("error") + " " + err.message;
+        S.statusEl.textContent = S.t("error");
         S.statusEl.classList.add("error");
         box.classList.remove("open");
       }
     }, 280);
+  };
+
+  S.setPanelMode = function (mode) {
+    const panel = $("panel");
+    if (!panel) return;
+    panel.setAttribute("data-mode", mode);
+    const summary = $("trip-summary");
+    if (summary) {
+      if (mode === "results" && S.fromPlace && S.toPlace) {
+        summary.hidden = false;
+        S.updateTripSummary();
+      } else {
+        summary.hidden = true;
+      }
+    }
+    if (S.afterPanelLayout) S.afterPanelLayout();
+  };
+
+  S.updateTripSummary = function () {
+    const a = $("sum-from");
+    const b = $("sum-to");
+    if (!a || !b) return;
+    a.textContent = S.fromPlace ? S.displayName(S.fromPlace) : "—";
+    b.textContent = S.toPlace ? S.displayName(S.toPlace) : "—";
+  };
+
+  S.armPinField = function (which) {
+    S.activePin = which;
+    $("from-field").classList.toggle("armed", which === "from");
+    $("to-field").classList.toggle("armed", which === "to");
+    if (S.updateMapHint) S.updateMapHint();
   };
 })();

@@ -17,28 +17,38 @@
 <body>
   <div id="map" role="application" aria-label="Tbilisi map"></div>
 
-  <div class="panel" id="panel" data-collapsed="false">
+  <div class="panel" id="panel" data-collapsed="false" data-sheet="mid" data-mode="search">
     <button type="button" class="panel-grip" id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Toggle panel">
       <span class="grip-bar" aria-hidden="true"></span>
       <span class="panel-title-mini" id="title-mini">Tbilisi Transit</span>
+      <span class="sheet-hint" id="sheet-hint" aria-hidden="true"></span>
     </button>
 
     <div class="panel-body" id="panel-body">
       <header class="panel-header">
-        <div class="panel-heading">
-          <h1 id="title">Tbilisi Transit</h1>
-          <p id="subtitle">Trip planner · Transitous</p>
-        </div>
-        <div class="toolbar">
-          <button type="button" class="chip active" id="lang-en" data-lang="en">EN</button>
-          <button type="button" class="chip" id="lang-ka" data-lang="ka">KA</button>
+        <h1 id="title">Tbilisi Transit</h1>
+        <div class="toolbar" role="group" aria-label="Language">
+          <button type="button" class="chip lang active" id="lang-en" data-lang="en">EN</button>
+          <button type="button" class="chip lang" id="lang-ka" data-lang="ka">KA</button>
         </div>
       </header>
 
-      <div class="card">
+      <div class="trip-summary" id="trip-summary" hidden>
+        <button type="button" class="trip-summary-btn" id="edit-trip" title="Edit">
+          <span class="trip-from" id="sum-from"></span>
+          <span class="trip-arrow" aria-hidden="true">→</span>
+          <span class="trip-to" id="sum-to"></span>
+        </button>
+        <button type="button" class="chip compact" id="edit-trip-chip">Edit</button>
+      </div>
+
+      <div class="card search-card" id="search-card">
         <div class="field" id="from-field">
           <label id="label-from" for="from">From</label>
-          <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Freedom Square" />
+          <div class="field-row">
+            <span class="field-pin from" aria-hidden="true">A</span>
+            <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Freedom Square" />
+          </div>
           <div class="suggest" id="from-suggest" role="listbox"></div>
         </div>
         <div class="swap-row">
@@ -46,40 +56,44 @@
         </div>
         <div class="field" id="to-field">
           <label id="label-to" for="to">To</label>
-          <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
+          <div class="field-row">
+            <span class="field-pin to" aria-hidden="true">B</span>
+            <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
+          </div>
           <div class="suggest" id="to-suggest" role="listbox"></div>
         </div>
 
-        <div class="map-toolbar" role="group" aria-label="Pin mode">
-          <button type="button" class="chip pin-mode active" id="pin-from" data-pin="from">◎ From</button>
-          <button type="button" class="chip pin-mode" id="pin-to" data-pin="to">◎ To</button>
-          <span class="map-hint" id="map-hint">Tap map to place From</span>
-        </div>
+        <p class="pin-hint" id="map-hint">Tap map to set From · focus a field to choose A/B</p>
 
-        <div class="paste-block">
-          <label id="label-paste" for="paste">Paste location</label>
-          <input id="paste" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="geo:… · maps.google.com · openstreetmap.org" />
-          <div class="paste-actions">
-            <button type="button" class="chip" id="use-as-from">Use as start</button>
-            <button type="button" class="chip" id="use-as-to">Use as destination</button>
+        <details class="more-tools" id="more-tools">
+          <summary id="label-more">More</summary>
+          <div class="more-body">
+            <div class="paste-block">
+              <label id="label-paste" for="paste">Paste a link</label>
+              <input id="paste" type="text" autocomplete="off" spellcheck="false"
+                     placeholder="geo:… · maps.google.com · openstreetmap.org" />
+              <div class="paste-actions">
+                <button type="button" class="chip" id="use-as-from">Use as start</button>
+                <button type="button" class="chip" id="use-as-to">Use as destination</button>
+              </div>
+            </div>
+            <div class="presets" id="presets">
+              <span class="presets-label" id="label-examples">Examples</span>
+              <button type="button" class="chip" id="preset-fs">Freedom → Station</button>
+              <button type="button" class="chip" id="preset-sf">Station → Freedom</button>
+            </div>
           </div>
-        </div>
+        </details>
 
-        <div class="presets">
-          <button type="button" class="chip" id="preset-fs">Freedom Square → Station Square</button>
-          <button type="button" class="chip" id="preset-sf">Station Square → Freedom Square</button>
-        </div>
-        <button type="button" class="btn-primary" id="go">Leave now</button>
+        <button type="button" class="btn-primary" id="go">Plan trip</button>
       </div>
 
       <div class="status" id="status" aria-live="polite"></div>
       <div id="results"></div>
 
       <footer id="footer">
-        Data via <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a>
-        · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
-        · times Asia/Tbilisi
+        <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a>
+        · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>
       </footer>
     </div>
   </div>

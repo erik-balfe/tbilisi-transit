@@ -1,5 +1,5 @@
 /* Tbilisi Transit — cache shell; network for API */
-const CACHE = "tt-shell-v3";
+const CACHE = "tt-shell-v4";
 const SHELL = [
   "./",
   "./index.html",
