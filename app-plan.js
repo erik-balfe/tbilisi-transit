@@ -8,9 +8,12 @@
   function escapeHtml(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-  function renderItinerary(it) {
+  function renderItinerary(it, index) {
     const el = document.createElement("article");
-    el.className = "itinerary";
+    el.className = "itinerary" + (index === 0 ? " active" : "");
+    el.dataset.index = String(index);
+    el.setAttribute("role", "button");
+    el.tabIndex = 0;
     const live = itineraryHasLive(it);
     const badge = live
       ? '<span class="badge live">' + S.t("live") + "</span>"
@@ -51,12 +54,25 @@
       }
       legsBox.appendChild(row);
     });
+    const select = () => {
+      S.resultsEl.querySelectorAll(".itinerary").forEach((n) => n.classList.remove("active"));
+      el.classList.add("active");
+      if (S.drawItineraryRoute) S.drawItineraryRoute(it);
+    };
+    el.addEventListener("click", select);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select();
+      }
+    });
     return el;
   }
   async function plan() {
     if (!S.fromPlace || !S.toPlace) {
       S.statusEl.textContent = S.t("pickBoth");
       S.statusEl.classList.add("error");
+      if (S.expandPanel) S.expandPanel();
       return;
     }
     S.goBtn.disabled = true;
@@ -65,21 +81,33 @@
     S.resultsEl.innerHTML = "";
     S.fromSuggest.classList.remove("open");
     S.toSuggest.classList.remove("open");
+    if (S.clearRoute) S.clearRoute();
     try {
       const from = S.fromPlace.lat + "," + S.fromPlace.lon;
       const to = S.toPlace.lat + "," + S.toPlace.lon;
+      /* Transitous/MOTIS returns legGeometry.points (encoded polyline) by default */
       const path = "/v5/plan?fromPlace=" + encodeURIComponent(from) +
         "&toPlace=" + encodeURIComponent(to) +
         "&arriveBy=false&language=" + S.lang + "&numItineraries=3";
       const data = await S.apiGet(path);
       const list = (data.itineraries || []).slice(0, 3);
+      S.lastItineraries = list;
       if (!list.length) {
         S.statusEl.textContent = S.t("noResults");
         S.resultsEl.innerHTML = '<div class="empty">' + S.t("noResults") + "</div>";
         return;
       }
       S.statusEl.textContent = list.length + " · " + S.displayName(S.fromPlace) + " → " + S.displayName(S.toPlace);
-      list.forEach((it) => S.resultsEl.appendChild(renderItinerary(it)));
+      list.forEach((it, i) => S.resultsEl.appendChild(renderItinerary(it, i)));
+      if (S.drawItineraryRoute) S.drawItineraryRoute(list[0]);
+      if (S.expandPanel) S.expandPanel();
+      /* On mobile, briefly show results then user can collapse for map */
+      if (window.matchMedia("(max-width: 799px)").matches) {
+        setTimeout(() => {
+          const first = S.resultsEl.querySelector(".itinerary");
+          if (first) first.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 80);
+      }
     } catch (err) {
       S.statusEl.textContent = S.t("error") + " " + err.message;
       S.statusEl.classList.add("error");
@@ -102,11 +130,13 @@
   S.fromInput.addEventListener("focus", () => {
     S.activePin = "from";
     if (S.updateMapHint) S.updateMapHint();
+    if (S.expandPanel) S.expandPanel();
     if (S.fromSuggest.children.length) S.fromSuggest.classList.add("open");
   });
   S.toInput.addEventListener("focus", () => {
     S.activePin = "to";
     if (S.updateMapHint) S.updateMapHint();
+    if (S.expandPanel) S.expandPanel();
     if (S.toSuggest.children.length) S.toSuggest.classList.add("open");
   });
   document.addEventListener("click", (e) => {
@@ -119,6 +149,7 @@
     S.fromInput.value = tv; S.toInput.value = fv;
     S.fromInput.classList.toggle("has-place", !!S.fromPlace);
     S.toInput.classList.toggle("has-place", !!S.toPlace);
+    if (S.clearRoute) S.clearRoute();
     if (S.syncMapMarkers) S.syncMapMarkers();
   });
   S.goBtn.addEventListener("click", plan);

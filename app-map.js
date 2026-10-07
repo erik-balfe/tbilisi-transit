@@ -1,47 +1,74 @@
 (function () {
   const S = window.__tt;
-  if (typeof L === "undefined") {
-    console.warn("Leaflet missing");
+  if (typeof maplibregl === "undefined") {
+    console.warn("MapLibre GL missing");
     return;
   }
 
   const b = S.TBILISI;
-  const bounds = L.latLngBounds([b.latMin, b.lonMin], [b.latMax, b.lonMax]);
+  /* MapLibre uses [lng, lat] */
+  const center = [b.center[1], b.center[0]];
+  const maxBounds = [
+    [b.lonMin - 0.08, b.latMin - 0.08],
+    [b.lonMax + 0.08, b.latMax + 0.08],
+  ];
 
-  function pinIcon(which, active) {
-    const label = which === "from" ? "A" : "B";
-    const cls = "tt-pin " + which + (active ? " active" : "");
-    return L.divIcon({
-      className: cls,
-      html: '<div class="tt-pin-inner"><span>' + label + "</span></div>",
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28],
-    });
-  }
+  const OSM_STYLE = {
+    version: 8,
+    name: "OSM Raster",
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: [
+          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        ],
+        tileSize: 256,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxzoom: 19,
+      },
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }],
+  };
 
-  const map = L.map("map", {
-    center: b.center,
+  const map = new maplibregl.Map({
+    container: "map",
+    style: OSM_STYLE,
+    center: center,
     zoom: b.zoom,
-    maxBounds: bounds.pad(0.15),
-    maxBoundsViscosity: 0.85,
-    zoomControl: true,
+    maxBounds: maxBounds,
+    attributionControl: true,
+    dragRotate: false,
+    pitchWithRotate: false,
   });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-    maxZoom: 19,
-  }).addTo(map);
-
-  /* Soft mask hint — keep pans inside city */
-  map.setMaxBounds(bounds.pad(0.15));
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
   let fromMarker = null;
   let toMarker = null;
+  let routeReady = false;
+
+  function pinEl(which, active) {
+    const el = document.createElement("div");
+    const label = which === "from" ? "A" : "B";
+    el.className = "tt-pin " + which + (active ? " active" : "");
+    el.innerHTML = '<div class="tt-pin-inner"><span>' + label + "</span></div>";
+    el.title = which === "from" ? "From" : "To";
+    return el;
+  }
 
   function refreshPinStyles() {
-    if (fromMarker) fromMarker.setIcon(pinIcon("from", S.activePin === "from"));
-    if (toMarker) toMarker.setIcon(pinIcon("to", S.activePin === "to"));
+    if (fromMarker) {
+      const el = fromMarker.getElement();
+      el.className = "tt-pin from" + (S.activePin === "from" ? " active" : "");
+    }
+    if (toMarker) {
+      const el = toMarker.getElement();
+      el.className = "tt-pin to" + (S.activePin === "to" ? " active" : "");
+    }
   }
 
   S.updateMapHint = function () {
@@ -53,56 +80,6 @@
     refreshPinStyles();
   };
 
-  function placeMarker(which, lat, lon) {
-    const ll = L.latLng(lat, lon);
-    if (which === "from") {
-      if (fromMarker) {
-        fromMarker.setLatLng(ll);
-      } else {
-        fromMarker = L.marker(ll, { draggable: true, icon: pinIcon("from", S.activePin === "from") }).addTo(map);
-        fromMarker.on("dragend", () => {
-          const p = fromMarker.getLatLng();
-          if (!S.inTbilisi(p.lat, p.lng)) {
-            const [clat, clon] = S.clampToTbilisi(p.lat, p.lng);
-            fromMarker.setLatLng([clat, clon]);
-            S.statusEl.textContent = S.t("outsideCity");
-            S.statusEl.classList.add("error");
-            applyCoords("from", clat, clon);
-            return;
-          }
-          applyCoords("from", p.lat, p.lng);
-        });
-        fromMarker.on("click", () => {
-          S.activePin = "from";
-          S.updateMapHint();
-        });
-      }
-    } else {
-      if (toMarker) {
-        toMarker.setLatLng(ll);
-      } else {
-        toMarker = L.marker(ll, { draggable: true, icon: pinIcon("to", S.activePin === "to") }).addTo(map);
-        toMarker.on("dragend", () => {
-          const p = toMarker.getLatLng();
-          if (!S.inTbilisi(p.lat, p.lng)) {
-            const [clat, clon] = S.clampToTbilisi(p.lat, p.lng);
-            toMarker.setLatLng([clat, clon]);
-            S.statusEl.textContent = S.t("outsideCity");
-            S.statusEl.classList.add("error");
-            applyCoords("to", clat, clon);
-            return;
-          }
-          applyCoords("to", p.lat, p.lng);
-        });
-        toMarker.on("click", () => {
-          S.activePin = "to";
-          S.updateMapHint();
-        });
-      }
-    }
-    refreshPinStyles();
-  }
-
   function applyCoords(which, lat, lon, name) {
     const input = which === "from" ? S.fromInput : S.toInput;
     const place = S.placeFromLatLon(lat, lon, name);
@@ -112,28 +89,257 @@
     S.statusEl.textContent = which === "from" ? S.t("droppedFrom") : S.t("droppedTo");
   }
 
+  function placeMarker(which, lat, lon) {
+    const lngLat = [lon, lat];
+    if (which === "from") {
+      if (fromMarker) {
+        fromMarker.setLngLat(lngLat);
+      } else {
+        fromMarker = new maplibregl.Marker({
+          element: pinEl("from", S.activePin === "from"),
+          draggable: true,
+          anchor: "bottom",
+        })
+          .setLngLat(lngLat)
+          .addTo(map);
+        fromMarker.on("dragend", () => {
+          const p = fromMarker.getLngLat();
+          if (!S.inTbilisi(p.lat, p.lng)) {
+            const [clat, clon] = S.clampToTbilisi(p.lat, p.lng);
+            fromMarker.setLngLat([clon, clat]);
+            S.statusEl.textContent = S.t("outsideCity");
+            S.statusEl.classList.add("error");
+            applyCoords("from", clat, clon);
+            return;
+          }
+          applyCoords("from", p.lat, p.lng);
+        });
+        fromMarker.getElement().addEventListener("click", (e) => {
+          e.stopPropagation();
+          S.activePin = "from";
+          S.updateMapHint();
+        });
+      }
+    } else {
+      if (toMarker) {
+        toMarker.setLngLat(lngLat);
+      } else {
+        toMarker = new maplibregl.Marker({
+          element: pinEl("to", S.activePin === "to"),
+          draggable: true,
+          anchor: "bottom",
+        })
+          .setLngLat(lngLat)
+          .addTo(map);
+        toMarker.on("dragend", () => {
+          const p = toMarker.getLngLat();
+          if (!S.inTbilisi(p.lat, p.lng)) {
+            const [clat, clon] = S.clampToTbilisi(p.lat, p.lng);
+            toMarker.setLngLat([clon, clat]);
+            S.statusEl.textContent = S.t("outsideCity");
+            S.statusEl.classList.add("error");
+            applyCoords("to", clat, clon);
+            return;
+          }
+          applyCoords("to", p.lat, p.lng);
+        });
+        toMarker.getElement().addEventListener("click", (e) => {
+          e.stopPropagation();
+          S.activePin = "to";
+          S.updateMapHint();
+        });
+      }
+    }
+    refreshPinStyles();
+  }
+
   S.syncMapMarkers = function () {
     if (S.fromPlace) placeMarker("from", S.fromPlace.lat, S.fromPlace.lon);
-    else if (fromMarker) { map.removeLayer(fromMarker); fromMarker = null; }
+    else if (fromMarker) {
+      fromMarker.remove();
+      fromMarker = null;
+    }
     if (S.toPlace) placeMarker("to", S.toPlace.lat, S.toPlace.lon);
-    else if (toMarker) { map.removeLayer(toMarker); toMarker = null; }
+    else if (toMarker) {
+      toMarker.remove();
+      toMarker = null;
+    }
     refreshPinStyles();
     fitPins();
   };
 
   function fitPins() {
     const pts = [];
-    if (S.fromPlace) pts.push([S.fromPlace.lat, S.fromPlace.lon]);
-    if (S.toPlace) pts.push([S.toPlace.lat, S.toPlace.lon]);
+    if (S.fromPlace) pts.push([S.fromPlace.lon, S.fromPlace.lat]);
+    if (S.toPlace) pts.push([S.toPlace.lon, S.toPlace.lat]);
     if (pts.length === 2) {
-      map.fitBounds(L.latLngBounds(pts).pad(0.25), { maxZoom: 14, animate: true });
+      const bounds = new maplibregl.LngLatBounds(pts[0], pts[1]);
+      map.fitBounds(bounds, { padding: S.mapPadding(), maxZoom: 14, duration: 600 });
     } else if (pts.length === 1) {
-      map.panTo(pts[0]);
+      map.easeTo({ center: pts[0], duration: 400 });
     }
   }
 
+  S.mapPadding = function () {
+    const panel = S.$("panel");
+    const collapsed = panel && panel.getAttribute("data-collapsed") === "true";
+    const mobile = window.matchMedia("(max-width: 799px)").matches;
+    if (mobile) {
+      const h = collapsed ? 56 : Math.min(window.innerHeight * 0.45, 360);
+      return { top: 48, bottom: h + 16, left: 24, right: 24 };
+    }
+    const w = collapsed ? 40 : Math.min(400, window.innerWidth * 0.4) + 24;
+    return { top: 40, bottom: 40, left: w, right: 40 };
+  };
+
+  /* Google / OTP encoded polyline decoder (precision 5 or 6) */
+  S.decodePolyline = function (encoded, precision) {
+    if (!encoded) return [];
+    const factor = Math.pow(10, precision == null ? 5 : precision);
+    let index = 0;
+    const len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+    const coordinates = [];
+    while (index < len) {
+      let b;
+      let shift = 0;
+      let result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+      lat += dlat;
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+      lng += dlng;
+      coordinates.push([lng / factor, lat / factor]);
+    }
+    return coordinates;
+  };
+
+  function modeStroke(mode, leg) {
+    const m = (mode || "WALK").toUpperCase();
+    if (leg && leg.routeColor && /^[0-9a-fA-F]{6}$/.test(leg.routeColor)) {
+      return "#" + leg.routeColor;
+    }
+    if (m === "WALK") return "#8b9aab";
+    if (m === "BUS") return "#3db8a0";
+    if (["SUBWAY", "METRO", "RAIL", "TRAM"].includes(m)) return "#e07a3a";
+    if (["GONDOLA", "CABLE_CAR", "FUNICULAR"].includes(m)) return "#7b6cf0";
+    return "#3db8a0";
+  }
+
+  function ensureRouteLayers() {
+    if (!map.getSource("route")) {
+      map.addSource("route", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "route-casing",
+        type: "line",
+        source: "route",
+        filter: ["!=", ["get", "walk"], 1],
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": "#0a1210",
+          "line-width": 9,
+          "line-opacity": 0.55,
+        },
+      });
+      map.addLayer({
+        id: "route-transit",
+        type: "line",
+        source: "route",
+        filter: ["!=", ["get", "walk"], 1],
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 6,
+          "line-opacity": 0.95,
+        },
+      });
+      map.addLayer({
+        id: "route-walk",
+        type: "line",
+        source: "route",
+        filter: ["==", ["get", "walk"], 1],
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 3.5,
+          "line-opacity": 0.9,
+          "line-dasharray": [1.2, 1.2],
+        },
+      });
+    }
+    routeReady = true;
+  }
+
+  S.clearRoute = function () {
+    if (!routeReady || !map.getSource("route")) return;
+    map.getSource("route").setData({ type: "FeatureCollection", features: [] });
+  };
+
+  S.drawItineraryRoute = function (it) {
+    if (!it) {
+      S.clearRoute();
+      return;
+    }
+    const run = () => {
+      ensureRouteLayers();
+      const features = [];
+      const bounds = new maplibregl.LngLatBounds();
+      let any = false;
+      (it.legs || []).forEach((leg, i) => {
+        const geom = leg.legGeometry || {};
+        const precision = geom.precision != null ? geom.precision : 5;
+        let coords = S.decodePolyline(geom.points || "", precision);
+        if (coords.length < 2 && leg.from && leg.to) {
+          coords = [
+            [leg.from.lon, leg.from.lat],
+            [leg.to.lon, leg.to.lat],
+          ];
+        }
+        if (coords.length < 2) return;
+        const mode = (leg.mode || "WALK").toUpperCase();
+        const walk = mode === "WALK" ? 1 : 0;
+        features.push({
+          type: "Feature",
+          properties: {
+            color: modeStroke(mode, leg),
+            walk: walk,
+            mode: mode,
+            idx: i,
+          },
+          geometry: { type: "LineString", coordinates: coords },
+        });
+        coords.forEach((c) => {
+          bounds.extend(c);
+          any = true;
+        });
+      });
+      map.getSource("route").setData({ type: "FeatureCollection", features: features });
+      if (any && !bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: S.mapPadding(), maxZoom: 15, duration: 700 });
+      }
+    };
+    if (map.isStyleLoaded()) run();
+    else map.once("load", run);
+  };
+
   map.on("click", (e) => {
-    let { lat, lng } = e.latlng;
+    /* Ignore clicks that hit markers (they stopPropagation), or UI */
+    let { lng, lat } = e.lngLat;
     if (!S.inTbilisi(lat, lng)) {
       S.statusEl.textContent = S.t("outsideCity");
       S.statusEl.classList.add("error");
@@ -151,6 +357,26 @@
     S.updateMapHint();
   });
 
+  /* Panel collapse for max map space */
+  const panel = S.$("panel");
+  const toggle = S.$("panel-toggle");
+  function setCollapsed(collapsed) {
+    if (!panel) return;
+    panel.setAttribute("data-collapsed", collapsed ? "true" : "false");
+    if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    setTimeout(() => map.resize(), 60);
+  }
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      const now = panel.getAttribute("data-collapsed") === "true";
+      setCollapsed(!now);
+    });
+  }
+  /* Mobile starts slightly open; user can collapse */
+  if (window.matchMedia("(max-width: 799px)").matches) {
+    setCollapsed(false);
+  }
+
   S.map = map;
   S.dropPin = function (which, lat, lon, name) {
     if (!S.inTbilisi(lat, lon)) {
@@ -159,13 +385,25 @@
       return false;
     }
     applyCoords(which, lat, lon, name);
-    map.panTo([lat, lon]);
+    map.easeTo({ center: [lon, lat], duration: 400 });
     return true;
   };
 
-  /* Fix grey tiles when container was sized late */
-  setTimeout(() => map.invalidateSize(), 50);
-  window.addEventListener("resize", () => map.invalidateSize());
+  S.expandPanel = function () {
+    setCollapsed(false);
+  };
+  S.collapsePanel = function () {
+    setCollapsed(true);
+  };
+
+  map.on("load", () => {
+    ensureRouteLayers();
+    map.resize();
+  });
+  window.addEventListener("resize", () => map.resize());
+  /* Fix size after fonts / layout settle */
+  setTimeout(() => map.resize(), 80);
+  setTimeout(() => map.resize(), 400);
 
   S.updateMapHint();
 })();

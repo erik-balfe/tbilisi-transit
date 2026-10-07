@@ -1,7 +1,7 @@
 {
   "name": "Tbilisi Transit",
   "short_name": "Tbilisi Transit",
-  "description": "Trip planner for Tbilisi — OSM map pins, Transitous routes",
+  "description": "Trip planner for Tbilisi — full-bleed map, pins, Transitous routes",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

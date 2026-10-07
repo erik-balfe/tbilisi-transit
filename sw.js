@@ -1,5 +1,5 @@
 /* Tbilisi Transit — cache shell; network for API */
-const CACHE = "tt-shell-v2";
+const CACHE = "tt-shell-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -12,8 +12,8 @@ const SHELL = [
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css",
+  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js",
 ];
 
 self.addEventListener("install", (event) => {

@@ -2,7 +2,7 @@
   const API = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
     ? "/api"
     : "https://api.transitous.org/api";
-  const UA_NOTE = "TbilisiTransitUI/1.1";
+  const UA_NOTE = "TbilisiTransitUI/1.2";
 
   /* Rough Tbilisi metro area */
   const TBILISI = {

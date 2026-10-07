@@ -43,6 +43,8 @@
   S.applyLang = function () {
     document.documentElement.lang = S.lang;
     $("title").textContent = S.t("title");
+    const mini = $("title-mini");
+    if (mini) mini.textContent = S.t("title");
     $("subtitle").textContent = S.t("subtitle");
     $("label-from").textContent = S.t("from");
     $("label-to").textContent = S.t("to");

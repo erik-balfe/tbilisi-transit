@@ -1,15 +1,17 @@
 # Tbilisi Transit
 
-Simple trip planner for Tbilisi: **OSM map pins**, Tbilisi-only search, [Transitous](https://transitous.org/) routes.
+Trip planner for Tbilisi: **full-bleed MapLibre + OSM map**, pin drop, [Transitous](https://transitous.org/) routes drawn on the map.
 
 **Live:** https://erik-balfe.github.io/tbilisi-transit/
 
 ## Features
 
 - From / To autocomplete (Transitous geocode + Nominatim), **bounded to Tbilisi** (≈ 41.60–41.85 N, 44.65–45.05 E)
-- Leaflet + OpenStreetMap map — tap to drop **From (A)** / **To (B)** pins, drag to move
+- **MapLibre GL JS** + OpenStreetMap raster tiles — tap to drop **From (A)** / **To (B)** pins, drag to move (no Leaflet / no third-party map banners)
+- Planned itinerary **polylines** on the map (`legGeometry.points` from Transitous), walk vs transit styling; tap an itinerary card to highlight it
+- Full-viewport map; controls in a collapsible overlay (bottom sheet on mobile, floating card on desktop)
 - Paste or open `geo:`, Google Maps, OSM URLs; query params `?from=lat,lon&to=lat,lon`, `?dest=…`
-- Installable **PWA** with **Web Share Target** (share a Maps link into the app when installed)
+- Installable **PWA** with **Web Share Target**
 
 ## Local
 
@@ -20,7 +22,7 @@ python3 server.py   # http://127.0.0.1:8765/  (proxies Transitous)
 ## Attribution
 
 - Transit data: [Transitous](https://transitous.org/) / [sources](https://transitous.org/sources/)
-- Map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
+- Map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors · rendered with [MapLibre GL JS](https://maplibre.org/)
 
 ## Query / share examples
 
