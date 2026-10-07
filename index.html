@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1419" />
+  <title>Tbilisi Transit</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header>
+    <h1 id="title">Tbilisi Transit</h1>
+    <p id="subtitle">Trip planner · Transitous</p>
+    <div class="toolbar">
+      <button type="button" class="chip active" id="lang-en" data-lang="en">EN</button>
+      <button type="button" class="chip" id="lang-ka" data-lang="ka">KA</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="field" id="from-field">
+        <label id="label-from" for="from">From</label>
+        <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Freedom Square" />
+        <div class="suggest" id="from-suggest" role="listbox"></div>
+      </div>
+      <div class="swap-row">
+        <button type="button" class="swap-btn" id="swap" title="Swap" aria-label="Swap">⇅</button>
+      </div>
+      <div class="field" id="to-field">
+        <label id="label-to" for="to">To</label>
+        <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
+        <div class="suggest" id="to-suggest" role="listbox"></div>
+      </div>
+      <div class="presets">
+        <button type="button" class="chip" id="preset-fs">Freedom Square → Station Square</button>
+        <button type="button" class="chip" id="preset-sf">Station Square → Freedom Square</button>
+      </div>
+      <button type="button" class="btn-primary" id="go">Leave now</button>
+    </div>
+
+    <div class="status" id="status" aria-live="polite"></div>
+    <div id="results"></div>
+  </main>
+
+  <footer id="footer">
+    Data via <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a>
+    · sources: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">transitous.org/sources</a>
+    · times Asia/Tbilisi
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
