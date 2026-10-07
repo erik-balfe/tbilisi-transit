@@ -102,21 +102,48 @@
   S.updateMapHint = function () {
     const hint = S.$("map-hint");
     if (!hint) return;
-    hint.textContent = S.activePin === "to" ? S.t("mapHintTo") : S.t("mapHintFrom");
-    refreshPinStyles();
-    if (S.armPinField) {
-      S.$("from-field").classList.toggle("armed", S.activePin === "from");
-      S.$("to-field").classList.toggle("armed", S.activePin === "to");
+    const mode = S.pinMode || S.activePin || "from";
+    let key = "mapHintFrom";
+    let expect = false;
+    if (mode === "none") {
+      key = "mapHintBoth";
+    } else if (mode === "to") {
+      key = S.fromPlace ? "mapHintTo" : "mapHintMoveTo";
+      expect = true;
+    } else {
+      /* from */
+      if (S.fromPlace && S.toPlace) key = "mapHintMoveFrom";
+      else if (S.toPlace && !S.fromPlace) key = "mapHintMoveFrom";
+      else key = "mapHintFrom";
+      expect = !!(S.toPlace && !S.fromPlace);
     }
+    hint.textContent = S.t(key);
+    hint.classList.toggle("expect", expect);
+    refreshPinStyles();
+    const ff = S.$("from-field");
+    const tf = S.$("to-field");
+    if (ff) ff.classList.toggle("armed", mode === "from");
+    if (tf) tf.classList.toggle("armed", mode === "to");
+    if (S.updateMovePinButtons) S.updateMovePinButtons();
   };
 
-  function applyCoords(which, lat, lon, name) {
+  function applyCoords(which, lat, lon, name, opts) {
+    opts = opts || {};
     const input = which === "from" ? S.fromInput : S.toInput;
+    const other = which === "from" ? S.toPlace : S.fromPlace;
     const place = S.placeFromLatLon(lat, lon, name);
-    S.setPlace(which, place, input, { skipMap: true });
+    S.setPlace(which, place, input, {
+      skipMap: true,
+      triggerPlan: !!other && opts.autoPlan !== false,
+      skipPlan: opts.skipPlan,
+    });
     placeMarker(which, lat, lon);
     S.statusEl.classList.remove("error");
-    S.statusEl.textContent = which === "from" ? S.t("droppedFrom") : S.t("droppedTo");
+    if (!(S.fromPlace && S.toPlace)) {
+      S.statusEl.textContent = which === "from" ? S.t("chooseDestination") : S.t("chooseStart");
+    } else {
+      S.statusEl.textContent = which === "from" ? S.t("droppedFrom") : S.t("droppedTo");
+    }
     /* Reverse-geocode unless caller already provided a real name */
     if (!name || S.isCoordLabel(name)) {
       if (S.resolvePinLabel) S.resolvePinLabel(which, lat, lon);
@@ -150,8 +177,9 @@
         });
         fromMarker.getElement().addEventListener("click", (e) => {
           e.stopPropagation();
-          S.activePin = "from";
-          S.updateMapHint();
+          /* Explicit: tap existing pin to arm move for uncommon re-pick */
+          if (S.armPinField) S.armPinField("from");
+          else { S.activePin = "from"; S.updateMapHint(); }
         });
       }
     } else {
@@ -179,8 +207,8 @@
         });
         toMarker.getElement().addEventListener("click", (e) => {
           e.stopPropagation();
-          S.activePin = "to";
-          S.updateMapHint();
+          if (S.armPinField) S.armPinField("to");
+          else { S.activePin = "to"; S.updateMapHint(); }
         });
       }
     }
@@ -216,18 +244,17 @@
 
   S.mapPadding = function () {
     const panel = S.$("panel");
-    const collapsed = panel && panel.getAttribute("data-collapsed") === "true";
     const mobile = window.matchMedia("(max-width: 799px)").matches;
     if (mobile) {
-      const sheet = panel ? panel.getAttribute("data-sheet") : "mid";
-      let h = 56;
-      if (!collapsed) {
-        if (sheet === "full") h = Math.min(window.innerHeight * 0.55, 480);
-        else h = Math.min(window.innerHeight * 0.38, 340);
+      let h = 64;
+      if (panel) {
+        const rect = panel.getBoundingClientRect();
+        if (rect.height > 0) h = rect.height;
       }
-      return { top: 48, bottom: h + 12, left: 20, right: 20 };
+      return { top: 48, bottom: Math.round(h) + 10, left: 20, right: 20 };
     }
-    const w = collapsed ? 40 : Math.min(380, window.innerWidth * 0.38) + 20;
+    const peek = panel && panel.getAttribute("data-sheet") === "peek";
+    const w = peek ? 40 : Math.min(380, window.innerWidth * 0.38) + 20;
     return { top: 36, bottom: 36, left: w, right: 36 };
   };
 
@@ -444,55 +471,211 @@
   };
 
   map.on("click", (e) => {
+    const mode = S.pinMode || S.activePin;
+    if (!mode || mode === "none") {
+      /* Both ends set — map pans freely; don't steal taps */
+      return;
+    }
     let { lng, lat } = e.lngLat;
     if (!S.inTbilisi(lat, lng)) {
       S.statusEl.textContent = S.t("outsideCity");
       S.statusEl.classList.add("error");
       return;
     }
-    applyCoords(S.activePin, lat, lng);
+    applyCoords(mode, lat, lng);
   });
 
-  /* Panel sheet: mid ↔ full ↔ collapsed for max map + gestures */
+  /* —— Draggable bottom sheet: peek / mid / full —— */
   const panel = S.$("panel");
-  const toggle = S.$("panel-toggle");
+  const handle = S.$("panel-handle");
+
+  function isMobileSheet() {
+    return window.matchMedia("(max-width: 799px)").matches;
+  }
+
+  function snapHeights() {
+    const vh = window.innerHeight;
+    const safe = 0;
+    return {
+      peek: Math.round(Math.min(72, vh * 0.12) + 8),
+      mid: Math.round(Math.min(vh * 0.42, 400)),
+      full: Math.round(Math.min(vh * 0.78, vh - 48)),
+    };
+  }
 
   function resizeMapSoon() {
     requestAnimationFrame(() => {
       map.resize();
-      setTimeout(() => map.resize(), 80);
+      setTimeout(() => map.resize(), 60);
+      setTimeout(() => map.resize(), 280);
     });
   }
-
   S.afterPanelLayout = resizeMapSoon;
 
-  function setCollapsed(collapsed) {
-    if (!panel) return;
-    panel.setAttribute("data-collapsed", collapsed ? "true" : "false");
-    if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    resizeMapSoon();
+  function applySheetHeight(px, animate) {
+    if (!panel || !isMobileSheet()) return;
+    if (!animate) panel.classList.add("sheet-dragging");
+    else panel.classList.remove("sheet-dragging");
+    panel.style.setProperty("--sheet-h", Math.round(px) + "px");
+    if (animate) resizeMapSoon();
   }
 
-  function cycleSheet() {
+  function setSheetSnap(snap, opts) {
+    opts = opts || {};
     if (!panel) return;
-    const collapsed = panel.getAttribute("data-collapsed") === "true";
-    const sheet = panel.getAttribute("data-sheet") || "mid";
-    if (collapsed) {
-      panel.setAttribute("data-sheet", "mid");
-      setCollapsed(false);
-      return;
-    }
-    if (sheet === "mid") {
-      panel.setAttribute("data-sheet", "full");
+    const heights = snapHeights();
+    const name = snap === "peek" || snap === "mid" || snap === "full" ? snap : "mid";
+    S.sheetSnap = name;
+    panel.setAttribute("data-sheet", name);
+    if (handle) handle.setAttribute("aria-expanded", name !== "peek" ? "true" : "false");
+    if (isMobileSheet()) {
+      applySheetHeight(heights[name], opts.animate !== false);
+    } else {
+      panel.style.removeProperty("--sheet-h");
       resizeMapSoon();
-      return;
     }
-    /* full → collapse for max map */
-    setCollapsed(true);
+    if (S.updatePeek) S.updatePeek();
   }
 
-  if (toggle) {
-    toggle.addEventListener("click", cycleSheet);
+  S.setSheet = function (sheet) {
+    setSheetSnap(sheet, { animate: true });
+  };
+  S.expandPanel = function () {
+    setSheetSnap("mid", { animate: true });
+  };
+  S.collapsePanel = function () {
+    setSheetSnap("peek", { animate: true });
+  };
+
+  /* Redefine mapPadding from actual sheet height */
+  S.mapPadding = function () {
+    const mobile = isMobileSheet();
+    if (mobile) {
+      let h = 64;
+      if (panel) {
+        const rect = panel.getBoundingClientRect();
+        h = rect.height || snapHeights()[S.sheetSnap || "mid"];
+      }
+      return { top: 48, bottom: Math.round(h) + 10, left: 20, right: 20 };
+    }
+    const peek = panel && panel.getAttribute("data-sheet") === "peek";
+    const w = peek ? 40 : Math.min(380, window.innerWidth * 0.38) + 20;
+    return { top: 36, bottom: 36, left: w, right: 36 };
+  };
+
+  /* Drag logic (touch + mouse) on handle */
+  let drag = null;
+
+  function nearestSnap(h, velocityY) {
+    const s = snapHeights();
+    /* velocityY > 0 means finger moved down → prefer smaller sheet */
+    if (Math.abs(velocityY) > 0.7) {
+      if (velocityY > 0) {
+        if (h > s.mid + 20) return "mid";
+        return "peek";
+      }
+      if (h < s.mid - 20) return "mid";
+      return "full";
+    }
+    const pts = [
+      ["peek", s.peek],
+      ["mid", s.mid],
+      ["full", s.full],
+    ];
+    let best = pts[0];
+    let bestD = Math.abs(h - pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.abs(h - pts[i][1]);
+      if (d < bestD) { best = pts[i]; bestD = d; }
+    }
+    return best[0];
+  }
+
+  function onDragStart(clientY, pointerId) {
+    if (!panel || !isMobileSheet()) return;
+    const rect = panel.getBoundingClientRect();
+    drag = {
+      startY: clientY,
+      startH: rect.height,
+      lastY: clientY,
+      lastT: performance.now(),
+      velocityY: 0,
+      pointerId: pointerId,
+      moved: false,
+    };
+    panel.classList.add("sheet-dragging");
+    try {
+      if (handle && pointerId != null) handle.setPointerCapture(pointerId);
+    } catch (e) { /* ignore */ }
+  }
+
+  function onDragMove(clientY) {
+    if (!drag) return;
+    const dy = drag.startY - clientY; /* up = positive → taller */
+    const s = snapHeights();
+    let h = drag.startH + dy;
+    h = Math.max(s.peek - 8, Math.min(s.full + 24, h));
+    const now = performance.now();
+    const dt = Math.max(1, now - drag.lastT);
+    /* velocity in px/ms of finger Y (down positive) */
+    drag.velocityY = (clientY - drag.lastY) / dt;
+    drag.lastY = clientY;
+    drag.lastT = now;
+    if (Math.abs(drag.startY - clientY) > 6) drag.moved = true;
+    applySheetHeight(h, false);
+  }
+
+  function onDragEnd() {
+    if (!drag) return;
+    const rect = panel.getBoundingClientRect();
+    const wasTap = !drag.moved;
+    const v = drag.velocityY;
+    drag = null;
+    panel.classList.remove("sheet-dragging");
+    if (wasTap) {
+      /* Tap handle: peek→mid→full→peek */
+      const cur = panel.getAttribute("data-sheet") || "mid";
+      if (cur === "peek") setSheetSnap("mid");
+      else if (cur === "mid") setSheetSnap("full");
+      else setSheetSnap("peek");
+      return;
+    }
+    setSheetSnap(nearestSnap(rect.height, v));
+  }
+
+  if (handle) {
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (!isMobileSheet()) {
+        /* Desktop: click toggles peek ↔ mid */
+        return;
+      }
+      e.preventDefault();
+      onDragStart(e.clientY, e.pointerId);
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      onDragMove(e.clientY);
+    });
+    handle.addEventListener("pointerup", (e) => {
+      if (!isMobileSheet() && !drag) {
+        const cur = panel.getAttribute("data-sheet") || "mid";
+        setSheetSnap(cur === "peek" ? "mid" : "peek");
+        return;
+      }
+      onDragEnd();
+    });
+    handle.addEventListener("pointercancel", () => onDragEnd());
+    handle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const cur = panel.getAttribute("data-sheet") || "mid";
+        if (cur === "peek") setSheetSnap("mid");
+        else if (cur === "mid") setSheetSnap("full");
+        else setSheetSnap("peek");
+      }
+    });
   }
 
   S.map = map;
@@ -505,26 +688,28 @@
         return false;
       }
     }
-    applyCoords(which, lat, lon, name);
+    applyCoords(which, lat, lon, name, { autoPlan: opts.autoPlan !== false, skipPlan: opts.skipPlan });
     map.easeTo({ center: [lon, lat], duration: 400 });
     return true;
   };
 
-  S.expandPanel = function () {
-    if (panel) panel.setAttribute("data-sheet", "mid");
-    setCollapsed(false);
-  };
-  S.collapsePanel = function () {
-    setCollapsed(true);
-  };
-  S.setSheet = function (sheet) {
-    if (panel) panel.setAttribute("data-sheet", sheet);
-    setCollapsed(false);
-  };
+  window.addEventListener("resize", () => {
+    map.resize();
+    if (panel && isMobileSheet()) {
+      const snap = panel.getAttribute("data-sheet") || "mid";
+      setSheetSnap(snap, { animate: false });
+    }
+  });
 
-  window.addEventListener("resize", () => map.resize());
+  /* Init sheet */
+  S.sheetSnap = "mid";
+  if (panel) {
+    if (isMobileSheet()) setSheetSnap("mid", { animate: false });
+    else panel.setAttribute("data-sheet", "mid");
+  }
   setTimeout(() => map.resize(), 80);
   setTimeout(() => map.resize(), 400);
 
   S.updateMapHint();
+  if (S.updatePeek) S.updatePeek();
 })();

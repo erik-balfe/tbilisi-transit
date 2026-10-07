@@ -2,7 +2,7 @@
   const API = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
     ? "/api"
     : "https://api.transitous.org/api";
-  const UA_NOTE = "TbilisiTransitUI/1.4";
+  const UA_NOTE = "TbilisiTransitUI/1.5";
 
   /* Rough Tbilisi metro area */
   const TBILISI = {
@@ -48,8 +48,16 @@
       for: "for",
       presetFS: "Freedom → Station",
       presetSF: "Station → Freedom",
-      mapHintFrom: "Tap map to set From · drag pin to adjust",
-      mapHintTo: "Tap map to set To · drag pin to adjust",
+      mapHintFrom: "Tap the map to set your start",
+      mapHintTo: "Now choose destination — tap the map",
+      mapHintBoth: "Map is free — drag a pin or tap Move pin to adjust",
+      mapHintMoveFrom: "Tap the map to move start (A)",
+      mapHintMoveTo: "Tap the map to move destination (B)",
+      movePin: "Move pin",
+      chooseDestination: "Now choose destination",
+      chooseStart: "Now choose start",
+      peekPlan: "Plan a trip",
+      peekSwipe: "Swipe up",
       more: "Paste a link · Examples",
       paste: "Paste a link",
       useAsFrom: "Use as start",
@@ -67,6 +75,7 @@
       routesFound: (n) => (n === 1 ? "1 route" : n + " routes"),
       droppedPin: "Dropped pin",
       sheetOpen: "Show planner",
+      sheetPeek: "Expand",
       useMyLocation: "My location",
       locating: "Getting your location…",
       locatedFrom: "From set to your location",
@@ -104,8 +113,16 @@
       for: "",
       presetFS: "თავისუფლება → სადგური",
       presetSF: "სადგური → თავისუფლება",
-      mapHintFrom: "რუკაზე დააჭირეთ — საიდან",
-      mapHintTo: "რუკაზე დააჭირეთ — სადამდე",
+      mapHintFrom: "რუკაზე დააჭირეთ — საწყისი",
+      mapHintTo: "აირჩიეთ დანიშნულება — დააჭირეთ რუკას",
+      mapHintBoth: "რუკა თავისუფალია — გადაადგილეთ პინი ან Move pin",
+      mapHintMoveFrom: "რუკაზე დააჭირეთ — გადაადგილეთ საწყისი (A)",
+      mapHintMoveTo: "რუკაზე დააჭირეთ — გადაადგილეთ დანიშნულება (B)",
+      movePin: "პინის გადაადგილება",
+      chooseDestination: "აირჩიეთ დანიშნულება",
+      chooseStart: "აირჩიეთ საწყისი",
+      peekPlan: "მარშრუტის დაგეგმვა",
+      peekSwipe: "გაასრიალეთ ზემოთ",
       more: "ბმულის ჩასმა · მაგალითები",
       paste: "ჩასვით ბმული",
       useAsFrom: "საწყისად",
@@ -123,6 +140,7 @@
       routesFound: (n) => n + " მარშრუტი",
       droppedPin: "პინი",
       sheetOpen: "გეგმარება",
+      sheetPeek: "გახსნა",
       useMyLocation: "ჩემი ადგილმდებარეობა",
       locating: "ადგილმდებარეობის მიღება…",
       locatedFrom: "საწყისი — თქვენი ადგილი",

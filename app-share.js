@@ -111,8 +111,17 @@
     const toP = parseCoordParam(params.get("to") || params.get("dest") || params.get("destination"));
     const geoP = parseCoordParam(params.get("geo") || params.get("ll"));
 
-    if (fromP) acted = S.applyParsedLocation("from", fromP) || acted;
-    if (toP) acted = S.applyParsedLocation("to", toP) || acted;
+    /* skipPlan: app-plan.js auto-plans when both query params present */
+    if (fromP) {
+      acted = (S.dropPin
+        ? S.dropPin("from", fromP.lat, fromP.lon, null, { skipPlan: true })
+        : S.applyParsedLocation("from", fromP)) || acted;
+    }
+    if (toP) {
+      acted = (S.dropPin
+        ? S.dropPin("to", toP.lat, toP.lon, null, { skipPlan: true })
+        : S.applyParsedLocation("to", toP)) || acted;
+    }
     if (geoP && !toP && !fromP) {
       /* Single geo → destination by default */
       acted = S.applyParsedLocation("to", geoP) || acted;

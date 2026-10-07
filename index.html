@@ -17,12 +17,15 @@
 <body>
   <div id="map" role="application" aria-label="Tbilisi map"></div>
 
-  <div class="panel" id="panel" data-collapsed="false" data-sheet="mid" data-mode="search">
-    <button type="button" class="panel-grip" id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Toggle panel">
+  <div class="panel" id="panel" data-sheet="mid" data-mode="search" style="--sheet-h: 42dvh;">
+    <div class="panel-handle" id="panel-handle" role="button" tabindex="0"
+         aria-controls="panel-body" aria-expanded="true" title="Drag sheet">
       <span class="grip-bar" aria-hidden="true"></span>
-      <span class="panel-title-mini" id="title-mini">Tbilisi Transit</span>
-      <span class="sheet-hint" id="sheet-hint" aria-hidden="true"></span>
-    </button>
+      <div class="peek-row" id="peek-row">
+        <span class="peek-text" id="peek-text">Tbilisi Transit</span>
+        <span class="peek-action" id="peek-action" hidden></span>
+      </div>
+    </div>
 
     <div class="panel-body" id="panel-body">
       <header class="panel-header">
@@ -44,7 +47,10 @@
 
       <div class="card search-card" id="search-card">
         <div class="field" id="from-field">
-          <label id="label-from" for="from">From</label>
+          <div class="field-label-row">
+            <label id="label-from" for="from">From</label>
+            <button type="button" class="chip compact move-pin-btn" id="move-from" hidden>Move pin</button>
+          </div>
           <div class="field-row">
             <span class="field-pin from" aria-hidden="true">A</span>
             <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Freedom Square" />
@@ -61,7 +67,10 @@
           <button type="button" class="swap-btn" id="swap" title="Swap" aria-label="Swap">⇅</button>
         </div>
         <div class="field" id="to-field">
-          <label id="label-to" for="to">To</label>
+          <div class="field-label-row">
+            <label id="label-to" for="to">To</label>
+            <button type="button" class="chip compact move-pin-btn" id="move-to" hidden>Move pin</button>
+          </div>
           <div class="field-row">
             <span class="field-pin to" aria-hidden="true">B</span>
             <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
@@ -75,7 +84,7 @@
           <div class="suggest" id="to-suggest" role="listbox"></div>
         </div>
 
-        <p class="pin-hint" id="map-hint">Tap map to set From · focus a field to choose A/B</p>
+        <p class="pin-hint" id="map-hint">Tap map to set From</p>
 
         <details class="more-tools" id="more-tools">
           <summary id="label-more">More</summary>

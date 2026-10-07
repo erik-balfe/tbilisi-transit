@@ -163,10 +163,12 @@
       if (S.drawAllItineraries) {
         S.drawAllItineraries(list, 0, { fit: true, fitAll: false });
       }
-      /* Shrink form so results + map dominate */
+      /* Shrink form so results + map dominate; sheet mid for results list */
       if (S.setPanelMode) S.setPanelMode("results");
+      if (S.disarmPins) S.disarmPins();
       if (S.setSheet) S.setSheet("mid");
       else if (S.expandPanel) S.expandPanel();
+      if (S.updatePeek) S.updatePeek();
       if (window.matchMedia("(max-width: 799px)").matches) {
         setTimeout(() => {
           const first = S.resultsEl.querySelector(".itinerary");
@@ -218,8 +220,11 @@
         if (S.inTbilisi(lat, lon)) {
           if (!S.dropPin || !S.dropPin(which, lat, lon)) return;
           S.statusEl.classList.remove("error");
-          S.statusEl.textContent = which === "from" ? S.t("locatedFrom") : S.t("locatedTo");
-          if (other && S.plan) S.plan();
+          if (!(S.fromPlace && S.toPlace)) {
+            S.statusEl.textContent = which === "from" ? S.t("chooseDestination") : S.t("chooseStart");
+          } else {
+            S.statusEl.textContent = which === "from" ? S.t("locatedFrom") : S.t("locatedTo");
+          }
           return;
         }
 
@@ -227,7 +232,6 @@
           if (!S.dropPin || !S.dropPin(which, lat, lon, null, { allowNear: true })) return;
           S.statusEl.textContent = S.t("geoNearOutside");
           S.statusEl.classList.add("error");
-          if (other && S.plan) S.plan();
           return;
         }
 
@@ -247,8 +251,9 @@
   };
 
   function applyPreset(a, b) {
-    S.setPlace("from", Object.assign({}, S.PRESETS[a]), S.fromInput);
-    S.setPlace("to", Object.assign({}, S.PRESETS[b]), S.toInput);
+    S.setPlace("from", Object.assign({}, S.PRESETS[a]), S.fromInput, { skipAdvance: true, skipPlan: true });
+    S.setPlace("to", Object.assign({}, S.PRESETS[b]), S.toInput, { skipAdvance: true, skipPlan: true });
+    if (S.disarmPins) S.disarmPins();
     S.fromSuggest.classList.remove("open");
     S.toSuggest.classList.remove("open");
     const more = $("more-tools");
@@ -258,28 +263,32 @@
 
   function backToSearch() {
     if (S.setPanelMode) S.setPanelMode("search");
-    if (S.expandPanel) S.expandPanel();
+    if (S.setSheet) S.setSheet("mid");
+    else if (S.expandPanel) S.expandPanel();
+    if (S.fromPlace && S.toPlace) {
+      /* Both set — don't steal map; user can Move pin */
+      if (S.disarmPins) S.disarmPins();
+    } else if (!S.fromPlace) {
+      if (S.armPinField) S.armPinField("from");
+    } else {
+      if (S.armPinField) S.armPinField("to");
+    }
     S.fromInput.focus();
   }
 
   S.fromInput.addEventListener("input", () => S.debounceGeocode("from"));
   S.toInput.addEventListener("input", () => S.debounceGeocode("to"));
   S.fromInput.addEventListener("focus", () => {
+    /* Explicit focus = arm From (OK for uncommon re-pick; common path uses map after auto-arm To) */
     if (S.armPinField) S.armPinField("from");
-    else {
-      S.activePin = "from";
-      if (S.updateMapHint) S.updateMapHint();
-    }
-    if (S.expandPanel) S.expandPanel();
+    if (S.sheetSnap === "peek" && S.setSheet) S.setSheet("mid");
+    else if (S.expandPanel) S.expandPanel();
     if (S.fromSuggest.children.length) S.fromSuggest.classList.add("open");
   });
   S.toInput.addEventListener("focus", () => {
     if (S.armPinField) S.armPinField("to");
-    else {
-      S.activePin = "to";
-      if (S.updateMapHint) S.updateMapHint();
-    }
-    if (S.expandPanel) S.expandPanel();
+    if (S.sheetSnap === "peek" && S.setSheet) S.setSheet("mid");
+    else if (S.expandPanel) S.expandPanel();
     if (S.toSuggest.children.length) S.toSuggest.classList.add("open");
   });
   document.addEventListener("click", (e) => {
@@ -295,6 +304,14 @@
     if (S.clearRoute) S.clearRoute();
     if (S.syncMapMarkers) S.syncMapMarkers();
     if (S.updateTripSummary) S.updateTripSummary();
+    if (S.fromPlace && S.toPlace) {
+      if (S.disarmPins) S.disarmPins();
+    } else if (!S.fromPlace) {
+      if (S.armPinField) S.armPinField("from");
+    } else {
+      if (S.armPinField) S.armPinField("to");
+    }
+    if (S.updatePeek) S.updatePeek();
   });
   S.goBtn.addEventListener("click", plan);
   const locFrom = $("loc-from");
@@ -321,6 +338,27 @@
   const editChip = $("edit-trip-chip");
   if (editBtn) editBtn.addEventListener("click", backToSearch);
   if (editChip) editChip.addEventListener("click", backToSearch);
+
+  const moveFrom = $("move-from");
+  const moveTo = $("move-to");
+  if (moveFrom) {
+    moveFrom.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (S.armPinField) S.armPinField("from");
+      if (S.setSheet && S.sheetSnap === "peek") S.setSheet("mid");
+      S.statusEl.classList.remove("error");
+      S.statusEl.textContent = S.t("mapHintMoveFrom");
+    });
+  }
+  if (moveTo) {
+    moveTo.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (S.armPinField) S.armPinField("to");
+      if (S.setSheet && S.sheetSnap === "peek") S.setSheet("mid");
+      S.statusEl.classList.remove("error");
+      S.statusEl.textContent = S.t("mapHintMoveTo");
+    });
+  }
 
   S.fromInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {

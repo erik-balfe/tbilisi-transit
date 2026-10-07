@@ -6,6 +6,8 @@
     fromPlace: null,
     toPlace: null,
     activePin: "from",
+    /* pinMode: "from" | "to" | "none" — none = map pans freely, pins only via Move/drag */
+    pinMode: "from",
     timers: { from: null, to: null },
     reverseSeq: { from: 0, to: 0 },
     selectedItin: 0,
@@ -88,7 +90,12 @@
     $("use-as-to").textContent = S.t("useAsTo");
     const editChip = $("edit-trip-chip");
     if (editChip) editChip.textContent = S.t("edit");
+    ["move-from", "move-to"].forEach((id) => {
+      const btn = $(id);
+      if (btn) btn.textContent = S.t("movePin");
+    });
     if (S.updateMapHint) S.updateMapHint();
+    if (S.updatePeek) S.updatePeek();
     if (S.fromPlace && !S.isCoordLabel(S.fromPlace.name)) S.fromInput.value = S.displayName(S.fromPlace);
     if (S.toPlace && !S.isCoordLabel(S.toPlace.name)) S.toInput.value = S.displayName(S.toPlace);
     if (S.updateTripSummary) S.updateTripSummary();
@@ -259,6 +266,11 @@
     }
     if (!opts.skipMap && S.syncMapMarkers) S.syncMapMarkers();
     if (S.updateTripSummary) S.updateTripSummary();
+    if (S.updatePeek) S.updatePeek();
+    if (S.updateMovePinButtons) S.updateMovePinButtons();
+    if (!opts.skipAdvance && place) {
+      if (S.afterPlaceSet) S.afterPlaceSet(which, opts);
+    }
   };
 
   /** After pin drop: show friendly placeholder, then reverse-geocode */
@@ -300,8 +312,12 @@
       btn.querySelector(".meta").textContent = S.areaHint(r);
       btn.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        S.setPlace(which, S.placeFromResult(r), inputEl);
+        const other = which === "from" ? S.toPlace : S.fromPlace;
+        S.setPlace(which, S.placeFromResult(r), inputEl, {
+          triggerPlan: !!other,
+        });
         box.classList.remove("open");
+        if (S.setSheet && S.sheetSnap !== "peek") S.setSheet("mid");
       });
       box.appendChild(btn);
     });
@@ -313,7 +329,7 @@
       const inputEl = which === "from" ? S.fromInput : S.toInput;
       const box = which === "from" ? S.fromSuggest : S.toSuggest;
       const text = inputEl.value.trim();
-      S.setPlace(which, null, null, { skipMap: true });
+      S.setPlace(which, null, null, { skipMap: true, skipAdvance: true });
       inputEl.classList.remove("has-place");
       if (S.syncMapMarkers) S.syncMapMarkers();
       if (text.length < 2) { box.classList.remove("open"); return; }
@@ -354,10 +370,103 @@
     b.textContent = S.toPlace ? S.displayName(S.toPlace) : "—";
   };
 
+  /**
+   * Pin state machine:
+   * - from: next map tap / search / GPS sets From
+   * - to: next sets To (auto after From in 99% path)
+   * - none: both set; map pans freely; Move pin / field focus / drag to adjust
+   */
   S.armPinField = function (which) {
-    S.activePin = which;
-    $("from-field").classList.toggle("armed", which === "from");
-    $("to-field").classList.toggle("armed", which === "to");
+    if (which !== "from" && which !== "to") {
+      S.pinMode = "none";
+      S.activePin = null;
+    } else {
+      S.pinMode = which;
+      S.activePin = which;
+    }
+    $("from-field").classList.toggle("armed", S.pinMode === "from");
+    $("to-field").classList.toggle("armed", S.pinMode === "to");
     if (S.updateMapHint) S.updateMapHint();
+    if (S.updateMovePinButtons) S.updateMovePinButtons();
+    if (S.updatePeek) S.updatePeek();
+  };
+
+  S.disarmPins = function () {
+    S.armPinField(null);
+  };
+
+  S.updateMovePinButtons = function () {
+    const mf = $("move-from");
+    const mt = $("move-to");
+    const both = !!(S.fromPlace && S.toPlace);
+    if (mf) {
+      mf.hidden = !both;
+      mf.classList.toggle("active", S.pinMode === "from");
+    }
+    if (mt) {
+      mt.hidden = !both;
+      mt.classList.toggle("active", S.pinMode === "to");
+    }
+  };
+
+  S.updatePeek = function () {
+    const peek = $("peek-text");
+    const action = $("peek-action");
+    if (!peek) return;
+    if (S.fromPlace && S.toPlace) {
+      const a = S.displayName(S.fromPlace) || "A";
+      const b = S.displayName(S.toPlace) || "B";
+      peek.innerHTML =
+        '<span class="peek-a"></span><span class="peek-arrow">→</span><span class="peek-b"></span>';
+      peek.querySelector(".peek-a").textContent = a;
+      peek.querySelector(".peek-b").textContent = b;
+      if (action) {
+        action.hidden = false;
+        const n = (S.lastItineraries && S.lastItineraries.length) || 0;
+        action.textContent = n ? (typeof S.t("routesFound") === "function" ? S.t("routesFound")(n) : n + "") : S.t("peekSwipe");
+      }
+    } else if (S.fromPlace && !S.toPlace) {
+      peek.textContent = S.t("chooseDestination");
+      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
+    } else if (!S.fromPlace && S.toPlace) {
+      peek.textContent = S.t("chooseStart");
+      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
+    } else {
+      peek.textContent = S.t("peekPlan");
+      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
+    }
+  };
+
+  /**
+   * After a place is set: advance arming for the common path; auto-plan when second lands.
+   * opts.autoPlan (default true for map/gps/suggest) — caller can disable.
+   * opts.fromUserFocus — don't re-advance if only focusing.
+   */
+  S.afterPlaceSet = function (which, opts) {
+    opts = opts || {};
+    const both = !!(S.fromPlace && S.toPlace);
+    if (both) {
+      S.disarmPins();
+      if (opts.autoPlan !== false && S.plan && !opts.skipPlan) {
+        /* Second end just placed — plan (map/GPS/suggest). Not on every keystroke. */
+        if (opts.triggerPlan) S.plan();
+      }
+      if (S.updatePeek) S.updatePeek();
+      return;
+    }
+    if (which === "from" && S.fromPlace && !S.toPlace) {
+      S.armPinField("to");
+      if (S.statusEl && !S.statusEl.classList.contains("error")) {
+        S.statusEl.textContent = S.t("chooseDestination");
+      }
+    } else if (which === "to" && S.toPlace && !S.fromPlace) {
+      S.armPinField("from");
+      if (S.statusEl && !S.statusEl.classList.contains("error")) {
+        S.statusEl.textContent = S.t("chooseStart");
+      }
+    } else if (!S.fromPlace && !S.toPlace) {
+      S.armPinField("from");
+    }
+    if (S.updatePeek) S.updatePeek();
   };
 })();
