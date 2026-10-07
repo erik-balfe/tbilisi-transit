@@ -6,9 +6,18 @@ Simple mobile-friendly trip planner for Tbilisi municipal transport.
 - Sources / attribution: https://transitous.org/sources/
 - Times in Asia/Tbilisi
 
-## Use
+## Live site
 
-Open the GitHub Pages site (see repo Settings → Pages if the link is not live yet), or run locally:
+**https://erik-balfe.github.io/tbilisi-transit/**
+
+If that URL 404s, enable GitHub Pages once (branch deploy — no Actions):
+
+1. Open **https://github.com/erik-balfe/tbilisi-transit/settings/pages**
+2. Under **Build and deployment → Source**, choose **Deploy from a branch**
+3. Branch: **main** · Folder: **/ (root)** → **Save**
+4. Wait ~1 minute, then reload the live URL above
+
+## Local
 
 ```bash
 python3 server.py
@@ -16,6 +25,4 @@ python3 server.py
 
 Then open http://127.0.0.1:8765/
 
-## Local proxy
-
-`server.py` serves this folder and proxies `/api/*` to Transitous with an identifying User-Agent. On GitHub Pages the page calls `https://api.transitous.org/api` directly.
+`server.py` proxies `/api/*` to Transitous. On GitHub Pages the page calls `https://api.transitous.org/api` directly.
