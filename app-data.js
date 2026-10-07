@@ -2,7 +2,7 @@
   const API = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
     ? "/api"
     : "https://api.transitous.org/api";
-  const UA_NOTE = "TbilisiTransitUI/1.3";
+  const UA_NOTE = "TbilisiTransitUI/1.4";
 
   /* Rough Tbilisi metro area */
   const TBILISI = {
@@ -67,6 +67,16 @@
       routesFound: (n) => (n === 1 ? "1 route" : n + " routes"),
       droppedPin: "Dropped pin",
       sheetOpen: "Show planner",
+      useMyLocation: "My location",
+      locating: "Getting your location…",
+      locatedFrom: "From set to your location",
+      locatedTo: "To set to your location",
+      geoDenied: "Location permission denied. Allow it in browser settings.",
+      geoUnavailable: "Couldn’t get your location. Try again.",
+      geoTimeout: "Location timed out. Try again.",
+      geoUnsupported: "Location isn’t available in this browser.",
+      geoOutside: "You’re outside Tbilisi — can’t plan from here.",
+      geoNearOutside: "Near Tbilisi — pin set, but outside the usual area.",
       footer: '<a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>',
     },
     ka: {
@@ -113,6 +123,16 @@
       routesFound: (n) => n + " მარშრუტი",
       droppedPin: "პინი",
       sheetOpen: "გეგმარება",
+      useMyLocation: "ჩემი ადგილმდებარეობა",
+      locating: "ადგილმდებარეობის მიღება…",
+      locatedFrom: "საწყისი — თქვენი ადგილი",
+      locatedTo: "დანიშნულება — თქვენი ადგილი",
+      geoDenied: "ადგილმდებარეობაზე უარი. ჩართეთ ბრაუზერის პარამეტრებში.",
+      geoUnavailable: "ადგილმდებარეობა ვერ მივიღე. სცადეთ თავიდან.",
+      geoTimeout: "ადგილმდებარეობის მოთხოვნა ამოიწურა.",
+      geoUnsupported: "ბრაუზერი ადგილმდებარეობას არ უჭერს მხარს.",
+      geoOutside: "თბილისის გარეთ ხართ — აქედან ვერ დავგეგმავ.",
+      geoNearOutside: "თბილისთან ახლოს — პინი დასმულია, მაგრამ ჩვეულ ზონას გარეთ.",
       footer: '<a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>',
     },
   };

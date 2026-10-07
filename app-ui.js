@@ -35,6 +35,13 @@
     const b = S.TBILISI;
     return lat >= b.latMin && lat <= b.latMax && lon >= b.lonMin && lon <= b.lonMax;
   };
+  /** Soft pad (~13 km) — warn but still allow pin */
+  S.nearTbilisi = function (lat, lon) {
+    const b = S.TBILISI;
+    const pad = 0.12;
+    return lat >= b.latMin - pad && lat <= b.latMax + pad &&
+      lon >= b.lonMin - pad && lon <= b.lonMax + pad;
+  };
   S.clampToTbilisi = function (lat, lon) {
     const b = S.TBILISI;
     return [
@@ -58,6 +65,12 @@
     S.goBtn.textContent = S.t("go");
     $("swap").title = S.t("swap");
     $("swap").setAttribute("aria-label", S.t("swap"));
+    ["loc-from", "loc-to"].forEach((id) => {
+      const btn = $(id);
+      if (!btn) return;
+      btn.title = S.t("useMyLocation");
+      btn.setAttribute("aria-label", S.t("useMyLocation"));
+    });
     const pfs = $("preset-fs");
     const psf = $("preset-sf");
     if (pfs) pfs.textContent = S.t("presetFS");

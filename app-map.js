@@ -496,11 +496,14 @@
   }
 
   S.map = map;
-  S.dropPin = function (which, lat, lon, name) {
+  S.dropPin = function (which, lat, lon, name, opts) {
+    opts = opts || {};
     if (!S.inTbilisi(lat, lon)) {
-      S.statusEl.textContent = S.t("outsideCity");
-      S.statusEl.classList.add("error");
-      return false;
+      if (!(opts.allowNear && S.nearTbilisi && S.nearTbilisi(lat, lon))) {
+        S.statusEl.textContent = S.t("outsideCity");
+        S.statusEl.classList.add("error");
+        return false;
+      }
     }
     applyCoords(which, lat, lon, name);
     map.easeTo({ center: [lon, lat], duration: 400 });

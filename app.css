@@ -232,15 +232,40 @@ a { color: var(--accent); }
   outline: none; min-height: 44px;
 }
 .field input {
-  border-radius: 0 10px 10px 0;
+  border-radius: 0;
+  border-right: 0;
+  flex: 1;
+  min-width: 0;
 }
+.loc-btn {
+  width: 44px; flex-shrink: 0; padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--border); border-left: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--bg); color: var(--muted);
+  cursor: pointer; min-height: 44px;
+}
+.loc-btn svg { width: 20px; height: 20px; display: block; }
+.loc-btn:hover, .loc-btn:focus-visible { color: var(--accent); outline: none; }
+.loc-btn:disabled { opacity: 0.45; cursor: wait; }
+.field#from-field .loc-btn:hover, .field#from-field .loc-btn:focus-visible { color: var(--from); }
+.field#to-field .loc-btn:hover, .field#to-field .loc-btn:focus-visible { color: var(--to); }
+.field.armed .loc-btn { color: currentColor; }
+.field#from-field.armed .loc-btn { color: var(--from); }
+.field#to-field.armed .loc-btn { color: var(--to); }
 .paste-block input { border-radius: 10px; }
 .field input:focus, .paste-block input:focus { border-color: var(--accent); }
 .field#from-field input:focus { border-color: var(--from); }
 .field#to-field input:focus { border-color: var(--to); }
+.field input:focus + .loc-btn { border-color: var(--accent); }
+.field#from-field input:focus + .loc-btn { border-color: var(--from); }
+.field#to-field input:focus + .loc-btn { border-color: var(--to); }
 .field input.has-place { border-color: var(--accent-dim); }
 .field#from-field input.has-place { border-color: var(--from); }
 .field#to-field input.has-place { border-color: var(--to); }
+.field input.has-place + .loc-btn { border-color: var(--accent-dim); }
+.field#from-field input.has-place + .loc-btn { border-color: var(--from); }
+.field#to-field input.has-place + .loc-btn { border-color: var(--to); }
 .field.armed .field-pin {
   box-shadow: inset 0 0 0 1px currentColor;
 }

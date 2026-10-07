@@ -183,6 +183,69 @@
   }
   S.plan = plan;
 
+
+  function setLocButtonsBusy(busy) {
+    ["loc-from", "loc-to"].forEach((id) => {
+      const btn = $(id);
+      if (btn) btn.disabled = !!busy;
+    });
+  }
+
+  /** GPS → From/To pin; reverse-geocode; auto-plan if other end set. User-gesture only. */
+  S.useMyLocation = function (which) {
+    if (!navigator.geolocation) {
+      S.statusEl.textContent = S.t("geoUnsupported");
+      S.statusEl.classList.add("error");
+      return;
+    }
+    if (S.armPinField) S.armPinField(which);
+    else {
+      S.activePin = which;
+      if (S.updateMapHint) S.updateMapHint();
+    }
+    if (S.expandPanel) S.expandPanel();
+    S.statusEl.classList.remove("error");
+    S.statusEl.textContent = S.t("locating");
+    setLocButtonsBusy(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocButtonsBusy(false);
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const other = which === "from" ? S.toPlace : S.fromPlace;
+
+        if (S.inTbilisi(lat, lon)) {
+          if (!S.dropPin || !S.dropPin(which, lat, lon)) return;
+          S.statusEl.classList.remove("error");
+          S.statusEl.textContent = which === "from" ? S.t("locatedFrom") : S.t("locatedTo");
+          if (other && S.plan) S.plan();
+          return;
+        }
+
+        if (S.nearTbilisi && S.nearTbilisi(lat, lon)) {
+          if (!S.dropPin || !S.dropPin(which, lat, lon, null, { allowNear: true })) return;
+          S.statusEl.textContent = S.t("geoNearOutside");
+          S.statusEl.classList.add("error");
+          if (other && S.plan) S.plan();
+          return;
+        }
+
+        S.statusEl.textContent = S.t("geoOutside");
+        S.statusEl.classList.add("error");
+      },
+      (err) => {
+        setLocButtonsBusy(false);
+        let msg = S.t("geoUnavailable");
+        if (err && err.code === 1) msg = S.t("geoDenied");
+        else if (err && err.code === 3) msg = S.t("geoTimeout");
+        S.statusEl.textContent = msg;
+        S.statusEl.classList.add("error");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    );
+  };
+
   function applyPreset(a, b) {
     S.setPlace("from", Object.assign({}, S.PRESETS[a]), S.fromInput);
     S.setPlace("to", Object.assign({}, S.PRESETS[b]), S.toInput);
@@ -234,6 +297,10 @@
     if (S.updateTripSummary) S.updateTripSummary();
   });
   S.goBtn.addEventListener("click", plan);
+  const locFrom = $("loc-from");
+  const locTo = $("loc-to");
+  if (locFrom) locFrom.addEventListener("click", () => S.useMyLocation("from"));
+  if (locTo) locTo.addEventListener("click", () => S.useMyLocation("to"));
   $("preset-fs").addEventListener("click", () => applyPreset("freedom", "station"));
   $("preset-sf").addEventListener("click", () => applyPreset("station", "freedom"));
   $("lang-en").addEventListener("click", () => {
