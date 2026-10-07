@@ -1,28 +1,33 @@
 # Tbilisi Transit
 
-Simple mobile-friendly trip planner for Tbilisi municipal transport.
+Simple trip planner for Tbilisi: **OSM map pins**, Tbilisi-only search, [Transitous](https://transitous.org/) routes.
 
-- Live data from [Transitous](https://transitous.org/) (MOTIS)
-- Sources / attribution: https://transitous.org/sources/
-- Times in Asia/Tbilisi
+**Live:** https://erik-balfe.github.io/tbilisi-transit/
 
-## Live site
+## Features
 
-**https://erik-balfe.github.io/tbilisi-transit/**
-
-If that URL 404s, enable GitHub Pages once (branch deploy — no Actions):
-
-1. Open **https://github.com/erik-balfe/tbilisi-transit/settings/pages**
-2. Under **Build and deployment → Source**, choose **Deploy from a branch**
-3. Branch: **main** · Folder: **/ (root)** → **Save**
-4. Wait ~1 minute, then reload the live URL above
+- From / To autocomplete (Transitous geocode + Nominatim), **bounded to Tbilisi** (≈ 41.60–41.85 N, 44.65–45.05 E)
+- Leaflet + OpenStreetMap map — tap to drop **From (A)** / **To (B)** pins, drag to move
+- Paste or open `geo:`, Google Maps, OSM URLs; query params `?from=lat,lon&to=lat,lon`, `?dest=…`
+- Installable **PWA** with **Web Share Target** (share a Maps link into the app when installed)
 
 ## Local
 
 ```bash
-python3 server.py
+python3 server.py   # http://127.0.0.1:8765/  (proxies Transitous)
 ```
 
-Then open http://127.0.0.1:8765/
+## Attribution
 
-`server.py` proxies `/api/*` to Transitous. On GitHub Pages the page calls `https://api.transitous.org/api` directly.
+- Transit data: [Transitous](https://transitous.org/) / [sources](https://transitous.org/sources/)
+- Map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
+
+## Query / share examples
+
+```
+https://erik-balfe.github.io/tbilisi-transit/?from=41.69274,44.80206&to=41.7221,44.79774
+https://erik-balfe.github.io/tbilisi-transit/?dest=41.7151,44.8271
+https://erik-balfe.github.io/tbilisi-transit/?geo=41.70,44.80
+```
+
+Share Target (installed PWA): system Share → Tbilisi Transit with a Maps URL / `geo:` / lat,lon text.

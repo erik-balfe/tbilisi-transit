@@ -1,11 +1,13 @@
 (function () {
-  const { API, PRESETS, I18N } = window.TT;
+  const { API, PRESETS, I18N, TBILISI } = window.TT;
   const S = (window.__tt = {
-    API, PRESETS, I18N,
+    API, PRESETS, I18N, TBILISI,
     lang: localStorage.getItem("tt-lang") || "en",
     fromPlace: null,
     toPlace: null,
+    activePin: "from",
     timers: { from: null, to: null },
+    suppressMapSync: false,
   });
   const $ = (id) => document.getElementById(id);
   S.$ = $;
@@ -16,6 +18,7 @@
   S.statusEl = $("status");
   S.resultsEl = $("results");
   S.goBtn = $("go");
+  S.pasteInput = $("paste");
 
   S.t = function (key) {
     const pack = S.I18N[S.lang] || S.I18N.en;
@@ -25,6 +28,17 @@
     if (!p) return "";
     if (S.lang === "ka" && p.nameKa) return p.nameKa;
     return p.name || "";
+  };
+  S.inTbilisi = function (lat, lon) {
+    const b = S.TBILISI;
+    return lat >= b.latMin && lat <= b.latMax && lon >= b.lonMin && lon <= b.lonMax;
+  };
+  S.clampToTbilisi = function (lat, lon) {
+    const b = S.TBILISI;
+    return [
+      Math.min(b.latMax, Math.max(b.latMin, lat)),
+      Math.min(b.lonMax, Math.max(b.lonMin, lon)),
+    ];
   };
   S.applyLang = function () {
     document.documentElement.lang = S.lang;
@@ -40,6 +54,12 @@
     $("footer").innerHTML = S.t("footer");
     $("lang-en").classList.toggle("active", S.lang === "en");
     $("lang-ka").classList.toggle("active", S.lang === "ka");
+    $("pin-from").textContent = S.t("pinFrom");
+    $("pin-to").textContent = S.t("pinTo");
+    $("label-paste").textContent = S.t("paste");
+    $("use-as-from").textContent = S.t("useAsFrom");
+    $("use-as-to").textContent = S.t("useAsTo");
+    if (S.updateMapHint) S.updateMapHint();
     if (S.fromPlace) S.fromInput.value = S.displayName(S.fromPlace);
     if (S.toPlace) S.toInput.value = S.displayName(S.toPlace);
   };
@@ -74,14 +94,21 @@
     if (m === "BUS") return "mode-BUS";
     return "mode-WALK";
   };
-  S.preferGeorgia = function (results) {
-    const ge = (results || []).filter((r) => r.country === "GE");
-    const pool = ge.length ? ge : (results || []);
-    return pool.filter((r) => r.type === "STOP").concat(pool.filter((r) => r.type !== "STOP")).slice(0, 8);
+  S.filterTbilisi = function (results) {
+    const pool = (results || []).filter((r) =>
+      r && typeof r.lat === "number" && typeof r.lon === "number" && S.inTbilisi(r.lat, r.lon)
+    );
+    /* Prefer GE + STOP, discard foreign Freedom Squares etc. */
+    const ge = pool.filter((r) => !r.country || r.country === "GE");
+    const use = ge.length ? ge : pool;
+    const stops = use.filter((r) => r.type === "STOP");
+    const rest = use.filter((r) => r.type !== "STOP");
+    return stops.concat(rest).slice(0, 8);
   };
   S.areaHint = function (r) {
     const areas = (r.areas || []).map((a) => a.name).filter(Boolean);
-    return [r.type, r.country].concat(areas.slice(-2)).filter(Boolean).join(" · ");
+    const bits = [r.type === "STOP" ? "Stop" : (r.type || "Place")].concat(areas.slice(-2));
+    return bits.filter(Boolean).join(" · ");
   };
   S.apiGet = async function (path) {
     const res = await fetch(S.API + path, { headers: { Accept: "application/json" } });
@@ -91,15 +118,70 @@
     }
     return res.json();
   };
+  S.nominatimSearch = async function (text) {
+    const b = S.TBILISI;
+    /* viewbox = left,top,right,bottom = lonMax? Nominatim: left,top,right,bottom = west,north,east,south */
+    const viewbox = [b.lonMin, b.latMax, b.lonMax, b.latMin].join(",");
+    const url =
+      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6" +
+      "&countrycodes=ge&bounded=1&viewbox=" + encodeURIComponent(viewbox) +
+      "&q=" + encodeURIComponent(text.trim());
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (Array.isArray(data) ? data : [])
+      .map((r) => {
+        const lat = parseFloat(r.lat);
+        const lon = parseFloat(r.lon);
+        if (!S.inTbilisi(lat, lon)) return null;
+        const name = (r.namedetails && (r.namedetails.name || r.namedetails["name:en"])) ||
+          (r.display_name || "").split(",")[0] || "Place";
+        return {
+          type: "PLACE",
+          name,
+          lat, lon,
+          country: "GE",
+          id: "nominatim:" + r.osm_type + "/" + r.osm_id,
+          areas: [{ name: "Tbilisi" }],
+        };
+      })
+      .filter(Boolean);
+  };
   S.geocode = async function (text) {
     const q = encodeURIComponent(text.trim());
-    const data = await S.apiGet("/v1/geocode?text=" + q + "&language=" + S.lang);
-    return S.preferGeorgia(Array.isArray(data) ? data : []);
+    const bias = S.TBILISI.center[0] + "," + S.TBILISI.center[1];
+    let data = [];
+    try {
+      data = await S.apiGet(
+        "/v1/geocode?text=" + q + "&language=" + S.lang + "&place=" + encodeURIComponent(bias)
+      );
+    } catch (e) {
+      data = [];
+    }
+    let filtered = S.filterTbilisi(Array.isArray(data) ? data : []);
+    if (filtered.length < 2) {
+      try {
+        const extra = await S.nominatimSearch(text);
+        const seen = new Set(filtered.map((r) => r.name + "|" + r.lat.toFixed(4)));
+        extra.forEach((r) => {
+          const k = r.name + "|" + r.lat.toFixed(4);
+          if (!seen.has(k)) { filtered.push(r); seen.add(k); }
+        });
+      } catch (e) { /* ignore */ }
+    }
+    return S.filterTbilisi(filtered).slice(0, 8);
   };
   S.placeFromResult = function (r) {
-    return { name: r.name, lat: r.lat, lon: r.lon, id: r.id, type: r.type, country: r.country };
+    return { name: r.name, lat: r.lat, lon: r.lon, id: r.id, type: r.type, country: r.country || "GE" };
   };
-  S.setPlace = function (which, place, inputEl) {
+  S.placeFromLatLon = function (lat, lon, name) {
+    const n = name || (lat.toFixed(5) + ", " + lon.toFixed(5));
+    return { name: n, lat, lon, type: "PLACE", country: "GE" };
+  };
+  S.setPlace = function (which, place, inputEl, opts) {
+    opts = opts || {};
     if (which === "from") {
       S.fromPlace = place;
       S.fromInput.classList.toggle("has-place", !!place);
@@ -108,6 +190,7 @@
       S.toInput.classList.toggle("has-place", !!place);
     }
     if (place && inputEl) inputEl.value = S.displayName(place);
+    if (!opts.skipMap && S.syncMapMarkers) S.syncMapMarkers();
   };
   S.renderSuggest = function (box, items, which, inputEl) {
     box.innerHTML = "";
@@ -135,8 +218,9 @@
       const inputEl = which === "from" ? S.fromInput : S.toInput;
       const box = which === "from" ? S.fromSuggest : S.toSuggest;
       const text = inputEl.value.trim();
-      S.setPlace(which, null);
+      S.setPlace(which, null, null, { skipMap: true });
       inputEl.classList.remove("has-place");
+      if (S.syncMapMarkers) S.syncMapMarkers();
       if (text.length < 2) { box.classList.remove("open"); return; }
       try {
         S.statusEl.textContent = S.t("searching");

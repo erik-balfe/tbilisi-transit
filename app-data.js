@@ -2,7 +2,17 @@
   const API = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
     ? "/api"
     : "https://api.transitous.org/api";
-  const UA_NOTE = "TbilisiTransitUI/1.0";
+  const UA_NOTE = "TbilisiTransitUI/1.1";
+
+  /* Rough Tbilisi metro area */
+  const TBILISI = {
+    latMin: 41.60,
+    latMax: 41.85,
+    lonMin: 44.65,
+    lonMax: 45.05,
+    center: [41.7151, 44.8271],
+    zoom: 12,
+  };
 
   const PRESETS = {
     freedom: { name: "Freedom Square", nameKa: "თავისუფლების მოედანი", lat: 41.692738, lon: 44.802055, id: "ge-tbilisi-transport-company_1:3639", type: "STOP" },
@@ -20,7 +30,7 @@
       searching: "Searching…",
       planning: "Planning…",
       noResults: "No itineraries found. Try different stops.",
-      pickBoth: "Pick From and To from the suggestions (or use a preset).",
+      pickBoth: "Pick From and To (search, map pin, or preset).",
       error: "Something went wrong.",
       duration: "min",
       transfers0: "Direct",
@@ -36,7 +46,20 @@
       for: "for",
       presetFS: "Freedom Square → Station Square",
       presetSF: "Station Square → Freedom Square",
-      footer: 'Data via <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · sources: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">transitous.org/sources</a> · times Asia/Tbilisi',
+      pinFrom: "◎ From",
+      pinTo: "◎ To",
+      mapHintFrom: "Tap map to place From",
+      mapHintTo: "Tap map to place To",
+      paste: "Paste location",
+      useAsFrom: "Use as start",
+      useAsTo: "Use as destination",
+      pasteEmpty: "Paste a geo: link, Maps URL, or lat,lon first.",
+      pasteBad: "Could not parse a location in Tbilisi from that text.",
+      outsideCity: "That point is outside Tbilisi.",
+      droppedFrom: "From pin set",
+      droppedTo: "To pin set",
+      sharedIn: "Opened shared location",
+      footer: 'Data via <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · times Asia/Tbilisi',
     },
     ka: {
       title: "თბილისის ტრანსპორტი",
@@ -48,7 +71,7 @@
       searching: "ძებნა…",
       planning: "დაგეგმვა…",
       noResults: "მარშრუტი ვერ მოიძებნა.",
-      pickBoth: "აირჩიეთ საიდან და სადამდე (ან გამოიყენეთ პრესეტი).",
+      pickBoth: "აირჩიეთ საიდან და სადამდე (ძებნა, რუკა ან პრესეტი).",
       error: "შეცდომა მოხდა.",
       duration: "წთ",
       transfers0: "პირდაპირი",
@@ -64,9 +87,22 @@
       for: "",
       presetFS: "თავისუფლების მოედანი → სადგურის მოედანი",
       presetSF: "სადგურის მოედანი → თავისუფლების მოედანი",
-      footer: 'მონაცემები: <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · წყაროები: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">transitous.org/sources</a> · დრო Asia/Tbilisi',
+      pinFrom: "◎ საიდან",
+      pinTo: "◎ სადამდე",
+      mapHintFrom: "რუკაზე დააჭირეთ — საიდან",
+      mapHintTo: "რუკაზე დააჭირეთ — სადამდე",
+      paste: "ჩასვით ლოკაცია",
+      useAsFrom: "საწყისად",
+      useAsTo: "დანიშნულებად",
+      pasteEmpty: "ჯერ ჩასვით geo:, Maps ბმული ან lat,lon.",
+      pasteBad: "თბილისის ლოკაცია ვერ ამოვიკითხე.",
+      outsideCity: "წერტილი თბილისის გარეთაა.",
+      droppedFrom: "საწყისი პინი დაყენებულია",
+      droppedTo: "დანიშნულების პინი დაყენებულია",
+      sharedIn: "გაზიარებული ლოკაცია გაიხსნა",
+      footer: 'მონაცემები: <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a> · რუკა © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · დრო Asia/Tbilisi',
     },
   };
 
-  window.TT = { API, UA_NOTE, PRESETS, I18N };
+  window.TT = { API, UA_NOTE, PRESETS, I18N, TBILISI };
 })();

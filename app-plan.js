@@ -87,6 +87,8 @@
       S.goBtn.disabled = false;
     }
   }
+  S.plan = plan;
+
   function applyPreset(a, b) {
     S.setPlace("from", Object.assign({}, S.PRESETS[a]), S.fromInput);
     S.setPlace("to", Object.assign({}, S.PRESETS[b]), S.toInput);
@@ -98,9 +100,13 @@
   S.fromInput.addEventListener("input", () => S.debounceGeocode("from"));
   S.toInput.addEventListener("input", () => S.debounceGeocode("to"));
   S.fromInput.addEventListener("focus", () => {
+    S.activePin = "from";
+    if (S.updateMapHint) S.updateMapHint();
     if (S.fromSuggest.children.length) S.fromSuggest.classList.add("open");
   });
   S.toInput.addEventListener("focus", () => {
+    S.activePin = "to";
+    if (S.updateMapHint) S.updateMapHint();
     if (S.toSuggest.children.length) S.toSuggest.classList.add("open");
   });
   document.addEventListener("click", (e) => {
@@ -113,6 +119,7 @@
     S.fromInput.value = tv; S.toInput.value = fv;
     S.fromInput.classList.toggle("has-place", !!S.fromPlace);
     S.toInput.classList.toggle("has-place", !!S.toPlace);
+    if (S.syncMapMarkers) S.syncMapMarkers();
   });
   S.goBtn.addEventListener("click", plan);
   $("preset-fs").addEventListener("click", () => applyPreset("freedom", "station"));
@@ -122,6 +129,14 @@
   });
   $("lang-ka").addEventListener("click", () => {
     S.lang = "ka"; localStorage.setItem("tt-lang", S.lang); S.applyLang();
+  });
+  $("use-as-from").addEventListener("click", () => S.consumePaste("from"));
+  $("use-as-to").addEventListener("click", () => S.consumePaste("to"));
+  S.pasteInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      S.consumePaste(S.activePin === "from" ? "from" : "to");
+    }
   });
   S.fromInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -139,5 +154,7 @@
       else plan();
     }
   });
+
   S.applyLang();
+  if (S.consumeQueryAndShare) S.consumeQueryAndShare();
 })();

@@ -4,7 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f1419" />
+  <meta name="description" content="Tbilisi trip planner — OSM map pins and Transitous routes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <title>Tbilisi Transit</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
@@ -32,6 +40,26 @@
         <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
         <div class="suggest" id="to-suggest" role="listbox"></div>
       </div>
+
+      <div class="map-block">
+        <div class="map-toolbar" role="group" aria-label="Pin mode">
+          <button type="button" class="chip pin-mode active" id="pin-from" data-pin="from">◎ From</button>
+          <button type="button" class="chip pin-mode" id="pin-to" data-pin="to">◎ To</button>
+          <span class="map-hint" id="map-hint">Tap map to place From</span>
+        </div>
+        <div id="map" role="application" aria-label="Tbilisi map"></div>
+      </div>
+
+      <div class="paste-block">
+        <label id="label-paste" for="paste">Paste location</label>
+        <input id="paste" type="text" autocomplete="off" spellcheck="false"
+               placeholder="geo:… · maps.google.com · openstreetmap.org" />
+        <div class="paste-actions">
+          <button type="button" class="chip" id="use-as-from">Use as start</button>
+          <button type="button" class="chip" id="use-as-to">Use as destination</button>
+        </div>
+      </div>
+
       <div class="presets">
         <button type="button" class="chip" id="preset-fs">Freedom Square → Station Square</button>
         <button type="button" class="chip" id="preset-sf">Station Square → Freedom Square</button>
@@ -45,12 +73,23 @@
 
   <footer id="footer">
     Data via <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a>
-    · sources: <a href="https://transitous.org/sources/" target="_blank" rel="noopener">transitous.org/sources</a>
+    · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
     · times Asia/Tbilisi
   </footer>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="app-data.js"></script>
   <script src="app-ui.js"></script>
+  <script src="app-map.js"></script>
+  <script src="app-share.js"></script>
   <script src="app-plan.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

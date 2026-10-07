@@ -7,6 +7,8 @@
   --muted: #8b9aab;
   --accent: #3db8a0;
   --accent-dim: #2a7f6e;
+  --from: #3db8a0;
+  --to: #e07a3a;
   --bus: #3db8a0;
   --metro: #e07a3a;
   --walk: #8b9aab;
@@ -39,6 +41,12 @@ header p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.85rem; }
 }
 .chip:hover, button:hover, .btn:hover { background: var(--surface2); }
 .chip.active { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+.chip.pin-mode.active[data-pin="from"] {
+  background: rgba(61,184,160,0.25); border-color: var(--from); color: var(--from);
+}
+.chip.pin-mode.active[data-pin="to"] {
+  background: rgba(224,122,58,0.25); border-color: var(--to); color: var(--to);
+}
 .btn-primary {
   background: var(--accent); border-color: var(--accent); color: #0a1210; font-weight: 600;
   width: 100%; padding: 0.85rem; border-radius: var(--radius); font-size: 1rem;
@@ -51,24 +59,26 @@ main { flex: 1; max-width: 560px; width: 100%; margin: 0 auto; padding: 0.75rem 
   padding: 1rem; margin-bottom: 1rem;
 }
 .field { position: relative; margin-bottom: 0.65rem; }
-.field label {
+.field label, .paste-block label {
   display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--muted); margin-bottom: 0.3rem;
 }
-.field input {
+.field input, .paste-block input {
   width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
   color: var(--text); padding: 0.75rem 0.85rem; font-size: 1rem; font-family: inherit;
   outline: none;
 }
-.field input:focus { border-color: var(--accent); }
+.field input:focus, .paste-block input:focus { border-color: var(--accent); }
 .field input.has-place { border-color: var(--accent-dim); }
+.field#from-field input.has-place { border-color: var(--from); }
+.field#to-field input.has-place { border-color: var(--to); }
 .swap-row { display: flex; justify-content: center; margin: -0.15rem 0 0.35rem; }
 .swap-btn {
   width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
   font-size: 1.1rem; padding: 0;
 }
 .suggest {
-  position: absolute; left: 0; right: 0; top: 100%; z-index: 20;
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
   background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
   margin-top: 4px; max-height: 240px; overflow-y: auto; display: none;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -82,6 +92,50 @@ main { flex: 1; max-width: 560px; width: 100%; margin: 0 auto; padding: 0.75rem 
 .suggest button:hover, .suggest button.active { background: var(--bg); }
 .suggest .name { font-weight: 600; }
 .suggest .meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
+
+.map-block { margin: 0.75rem 0 0.85rem; }
+.map-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.5rem;
+}
+.map-hint { font-size: 0.75rem; color: var(--muted); margin-left: 0.15rem; }
+#map {
+  height: 260px; width: 100%; border-radius: 12px; border: 1px solid var(--border);
+  background: #121820; z-index: 1;
+}
+/* Dark Leaflet chrome */
+.leaflet-container { background: #121820; font-family: var(--font); }
+.leaflet-control-attribution {
+  background: rgba(15,20,25,0.85) !important; color: var(--muted) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: var(--accent) !important; }
+.leaflet-bar a {
+  background: var(--surface) !important; color: var(--text) !important;
+  border-bottom-color: var(--border) !important;
+}
+.leaflet-bar a:hover { background: var(--surface2) !important; }
+.leaflet-bar { border: 1px solid var(--border) !important; }
+
+.tt-pin {
+  background: transparent; border: 0;
+}
+.tt-pin-inner {
+  width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  border: 2px solid #0a1210; box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  display: grid; place-items: center;
+}
+.tt-pin-inner span {
+  transform: rotate(45deg); font-size: 11px; font-weight: 800; color: #0a1210;
+}
+.tt-pin.from .tt-pin-inner { background: var(--from); }
+.tt-pin.to .tt-pin-inner { background: var(--to); }
+.tt-pin.active .tt-pin-inner {
+  box-shadow: 0 0 0 3px rgba(232,238,244,0.35), 0 2px 8px rgba(0,0,0,0.45);
+}
+
+.paste-block { margin-bottom: 0.85rem; }
+.paste-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.45rem; }
+
 .presets { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0.85rem; }
 .status {
   min-height: 1.25rem; font-size: 0.9rem; color: var(--muted); margin-bottom: 0.75rem;
@@ -133,3 +187,7 @@ footer {
   color: var(--muted); font-size: 0.75rem; line-height: 1.45;
 }
 .empty { text-align: center; color: var(--muted); padding: 1.5rem 0.5rem; font-size: 0.95rem; }
+
+@media (min-width: 640px) {
+  #map { height: 300px; }
+}
