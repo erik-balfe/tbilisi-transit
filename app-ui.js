@@ -1,32 +1,34 @@
+/* Core state, i18n, geocoding (online + offline stops), recents, theme, offline flag */
 (function () {
   const { API, PRESETS, I18N, TBILISI, ITIN_COLORS } = window.TT;
   const S = (window.__tt = {
     API, PRESETS, I18N, TBILISI, ITIN_COLORS,
-    lang: localStorage.getItem("tt-lang") || "en",
+    lang: localStorage.getItem("tt-lang") || ((navigator.language || "").startsWith("ka") ? "ka" : "en"),
     fromPlace: null,
     toPlace: null,
-    activePin: "from",
-    /* pinMode: "from" | "to" | "none" — none = map pans freely, pins only via Move/drag */
-    pinMode: "from",
-    timers: { from: null, to: null },
-    reverseSeq: { from: 0, to: 0 },
+    /* UI mode: "pick" (center pin) | "search" (typing) | "trip" (results) */
+    mode: "pick",
+    pickTarget: "from",
+    searchField: "from",
     selectedItin: 0,
     lastItineraries: [],
+    online: navigator.onLine !== false,
   });
   const $ = (id) => document.getElementById(id);
   S.$ = $;
   S.fromInput = $("from");
   S.toInput = $("to");
-  S.fromSuggest = $("from-suggest");
-  S.toSuggest = $("to-suggest");
   S.statusEl = $("status");
   S.resultsEl = $("results");
-  S.goBtn = $("go");
   S.pasteInput = $("paste");
 
   S.t = function (key) {
     const pack = S.I18N[S.lang] || S.I18N.en;
-    return pack[key];
+    return pack[key] != null ? pack[key] : S.I18N.en[key];
+  };
+  S.tf = function (key, arg) {
+    const v = S.t(key);
+    return typeof v === "function" ? v(arg) : v;
   };
   S.displayName = function (p) {
     if (!p) return "";
@@ -37,436 +39,298 @@
     const b = S.TBILISI;
     return lat >= b.latMin && lat <= b.latMax && lon >= b.lonMin && lon <= b.lonMax;
   };
-  /** Soft pad (~13 km) — warn but still allow pin */
   S.nearTbilisi = function (lat, lon) {
-    const b = S.TBILISI;
-    const pad = 0.12;
-    return lat >= b.latMin - pad && lat <= b.latMax + pad &&
-      lon >= b.lonMin - pad && lon <= b.lonMax + pad;
-  };
-  S.clampToTbilisi = function (lat, lon) {
-    const b = S.TBILISI;
-    return [
-      Math.min(b.latMax, Math.max(b.latMin, lat)),
-      Math.min(b.lonMax, Math.max(b.lonMin, lon)),
-    ];
+    const b = S.TBILISI, pad = 0.12;
+    return lat >= b.latMin - pad && lat <= b.latMax + pad && lon >= b.lonMin - pad && lon <= b.lonMax + pad;
   };
   S.isCoordLabel = function (name) {
     if (!name) return true;
     return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(String(name).trim());
   };
-  S.applyLang = function () {
-    document.documentElement.lang = S.lang;
-    $("title").textContent = S.t("title");
-    const mini = $("title-mini");
-    if (mini) mini.textContent = S.t("title");
-    const sheetHint = $("sheet-hint");
-    if (sheetHint) sheetHint.textContent = S.t("sheetOpen");
-    $("label-from").textContent = S.t("from");
-    $("label-to").textContent = S.t("to");
-    S.goBtn.textContent = S.t("go");
-    $("swap").title = S.t("swap");
-    $("swap").setAttribute("aria-label", S.t("swap"));
-    ["loc-from", "loc-to"].forEach((id) => {
-      const btn = $(id);
-      if (!btn) return;
-      btn.title = S.t("useMyLocation");
-      btn.setAttribute("aria-label", S.t("useMyLocation"));
-    });
-    const pfs = $("preset-fs");
-    const psf = $("preset-sf");
-    if (pfs) pfs.textContent = S.t("presetFS");
-    if (psf) psf.textContent = S.t("presetSF");
-    $("footer").innerHTML = S.t("footer");
-    $("lang-en").classList.toggle("active", S.lang === "en");
-    $("lang-ka").classList.toggle("active", S.lang === "ka");
-    const more = $("label-more");
-    if (more) more.textContent = S.t("more");
-    const lp = $("label-paste");
-    if (lp) lp.textContent = S.t("paste");
-    const le = $("label-examples");
-    if (le) le.textContent = S.t("examples");
-    $("use-as-from").textContent = S.t("useAsFrom");
-    $("use-as-to").textContent = S.t("useAsTo");
-    const editChip = $("edit-trip-chip");
-    if (editChip) editChip.textContent = S.t("edit");
-    ["move-from", "move-to"].forEach((id) => {
-      const btn = $(id);
-      if (btn) btn.textContent = S.t("movePin");
-    });
-    if (S.updateMapHint) S.updateMapHint();
-    if (S.updatePeek) S.updatePeek();
-    if (S.fromPlace && !S.isCoordLabel(S.fromPlace.name)) S.fromInput.value = S.displayName(S.fromPlace);
-    if (S.toPlace && !S.isCoordLabel(S.toPlace.name)) S.toInput.value = S.displayName(S.toPlace);
-    if (S.updateTripSummary) S.updateTripSummary();
+  S.escapeHtml = function (s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   };
+  S.distM = function (lat1, lon1, lat2, lon2) {
+    const R = 6371000, toR = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toR, dLon = (lon2 - lon1) * toR;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+  S.isMobile = function () { return window.matchMedia("(max-width: 799px)").matches; };
+  S.isDark = function () { return window.matchMedia("(prefers-color-scheme: dark)").matches; };
+
+  /* Readable text color on a hex background */
+  S.textOn = function (hex) {
+    const h = String(hex || "#000").replace("#", "");
+    const r = parseInt(h.substr(0, 2), 16) / 255, g = parseInt(h.substr(2, 2), 16) / 255, b = parseInt(h.substr(4, 2), 16) / 255;
+    const lin = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return L > 0.28 ? "#111418" : "#ffffff";
+  };
+  S.itinColor = function (i) { return S.ITIN_COLORS[i % S.ITIN_COLORS.length]; };
+
   S.formatTime = function (iso) {
     if (!iso) return "—";
     try {
       return new Intl.DateTimeFormat(S.lang === "ka" ? "ka-GE" : "en-GB", {
         timeZone: "Asia/Tbilisi", hour: "2-digit", minute: "2-digit", hour12: false,
       }).format(new Date(iso));
-    } catch (e) { return iso.slice(11, 16); }
+    } catch (e) { return String(iso).slice(11, 16); }
   };
-  S.formatDuration = function (sec) {
-    return Math.round((sec || 0) / 60) + " " + S.t("duration");
-  };
+  S.formatDuration = function (sec) { return Math.max(1, Math.round((sec || 0) / 60)) + " " + S.t("duration"); };
   S.transferLabel = function (n) {
     if (!n) return S.t("transfers0");
     if (n === 1) return S.t("transfers1");
-    return S.t("transfersN")(n);
+    return S.tf("transfersN", n);
   };
   S.modeLabel = function (mode) {
     const m = (mode || "").toUpperCase();
     if (m === "WALK") return S.t("walk");
     if (m === "BUS") return S.t("bus");
-    if (m === "SUBWAY" || m === "METRO" || m === "RAIL" || m === "TRAM") return S.t("metro");
-    if (m === "GONDOLA" || m === "CABLE_CAR" || m === "FUNICULAR") return S.t("gondola");
+    if (["SUBWAY", "METRO", "RAIL", "TRAM"].includes(m)) return S.t("metro");
+    if (["GONDOLA", "CABLE_CAR", "FUNICULAR", "AERIAL_LIFT"].includes(m)) return S.t("gondola");
     return mode || "?";
   };
-  S.modeClass = function (mode) {
-    const m = (mode || "WALK").toUpperCase();
-    if (["SUBWAY", "METRO", "RAIL", "TRAM"].includes(m)) return "mode-SUBWAY";
-    if (["GONDOLA", "CABLE_CAR", "FUNICULAR"].includes(m)) return "mode-GONDOLA";
-    if (m === "BUS") return "mode-BUS";
-    return "mode-WALK";
+
+  /* —— Network —— */
+  S.apiGet = async function (path, opts) {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), (opts && opts.timeout) || 20000);
+    try {
+      let res;
+      try {
+        res = await fetch(S.API + path, { headers: { Accept: "application/json" }, signal: ctl.signal });
+      } catch (e) {
+        S.setOnline(false); /* network failure → offline indicator */
+        throw e;
+      }
+      S.setOnline(true);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } finally { clearTimeout(to); }
   };
-  S.filterTbilisi = function (results) {
-    const pool = (results || []).filter((r) =>
-      r && typeof r.lat === "number" && typeof r.lon === "number" && S.inTbilisi(r.lat, r.lon)
-    );
-    const ge = pool.filter((r) => !r.country || r.country === "GE");
-    const use = ge.length ? ge : pool;
-    const stops = use.filter((r) => r.type === "STOP");
-    const rest = use.filter((r) => r.type !== "STOP");
-    return stops.concat(rest).slice(0, 8);
-  };
-  S.areaHint = function (r) {
-    const areas = (r.areas || []).map((a) => a.name).filter(Boolean);
-    const bits = [r.type === "STOP" ? "Stop" : (r.type || "Place")].concat(areas.slice(-2));
-    return bits.filter(Boolean).join(" · ");
-  };
-  S.apiGet = async function (path) {
-    const res = await fetch(S.API + path, { headers: { Accept: "application/json" } });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error("HTTP " + res.status + (text ? ": " + text.slice(0, 80) : ""));
+
+  /* —— Offline stop index (bundled GTFS stops, precached by SW) —— */
+  let stopsPromise = null;
+  S.loadStops = function () {
+    if (!stopsPromise) {
+      stopsPromise = fetch("data/stops.json").then((r) => r.json()).then((d) => {
+        S.stops = (d.stops || []).map((s) => ({
+          en: s[0], ka: s[1], lat: s[2], lon: s[3], codes: s[4], kind: s[5],
+          _n: S.norm(s[0] + " " + s[1] + " " + s[4]),
+        }));
+        return S.stops;
+      }).catch(() => (S.stops = []));
     }
-    return res.json();
+    return stopsPromise;
+  };
+  S.norm = function (s) {
+    return String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  };
+  S.searchStopsLocal = function (text, limit) {
+    const list = S.stops || [];
+    const q = S.norm(text);
+    if (!q) return [];
+    const words = q.split(" ");
+    const scored = [];
+    for (const s of list) {
+      let ok = true, score = 0;
+      for (const w of words) {
+        const i = s._n.indexOf(w);
+        if (i < 0) { ok = false; break; }
+        score += i === 0 || s._n[i - 1] === " " ? 2 : 1;
+      }
+      if (!ok) continue;
+      if (s._n.startsWith(q)) score += 3;
+      if (s.kind) score += 1.5; /* metro / cable car first on ties */
+      scored.push([score, s]);
+    }
+    scored.sort((a, b) => b[0] - a[0] || a[1].en.length - b[1].en.length);
+    return scored.slice(0, limit || 6).map(([, s]) => ({
+      type: "STOP", name: s.en, nameKa: s.ka, lat: s.lat, lon: s.lon, kind: s.kind, local: true,
+    }));
+  };
+  S.nearestStop = function (lat, lon, maxM) {
+    let best = null, bd = maxM || 250;
+    for (const s of S.stops || []) {
+      if (Math.abs(s.lat - lat) > 0.01 || Math.abs(s.lon - lon) > 0.013) continue;
+      const d = S.distM(lat, lon, s.lat, s.lon);
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best;
+  };
+
+  S.filterTbilisi = function (results) {
+    return (results || []).filter((r) =>
+      r && typeof r.lat === "number" && typeof r.lon === "number" && S.inTbilisi(r.lat, r.lon) && (!r.country || r.country === "GE"));
   };
   S.nominatimSearch = async function (text) {
     const b = S.TBILISI;
     const viewbox = [b.lonMin, b.latMax, b.lonMax, b.latMin].join(",");
-    const url =
-      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6" +
-      "&countrycodes=ge&bounded=1&viewbox=" + encodeURIComponent(viewbox) +
-      "&q=" + encodeURIComponent(text.trim());
-    const res = await fetch(url, {
-      headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" },
-    });
+    const url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&limit=6" +
+      "&countrycodes=ge&bounded=1&viewbox=" + encodeURIComponent(viewbox) + "&q=" + encodeURIComponent(text.trim());
+    const res = await fetch(url, { headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" } });
     if (!res.ok) return [];
     const data = await res.json();
-    return (Array.isArray(data) ? data : [])
-      .map((r) => {
-        const lat = parseFloat(r.lat);
-        const lon = parseFloat(r.lon);
-        if (!S.inTbilisi(lat, lon)) return null;
-        const name = (r.namedetails && (r.namedetails.name || r.namedetails["name:en"])) ||
-          (r.display_name || "").split(",")[0] || "Place";
-        return {
-          type: "PLACE",
-          name,
-          lat, lon,
-          country: "GE",
-          id: "nominatim:" + r.osm_type + "/" + r.osm_id,
-          areas: [{ name: "Tbilisi" }],
-        };
-      })
-      .filter(Boolean);
+    return (Array.isArray(data) ? data : []).map((r) => {
+      const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+      if (!S.inTbilisi(lat, lon)) return null;
+      const nd = r.namedetails || {};
+      const name = (S.lang === "ka" ? nd.name : nd["name:en"]) || nd.name || (r.display_name || "").split(",")[0] || "Place";
+      const a = r.address || {};
+      const area = a.suburb || a.neighbourhood || a.city_district || "";
+      return { type: "PLACE", name, lat, lon, area, country: "GE" };
+    }).filter(Boolean);
   };
-
-  /** Friendly label from Nominatim reverse JSON — never raw coords */
-  S.friendlyFromNominatim = function (data) {
-    if (!data) return null;
-    const addr = data.address || {};
-    const road =
-      addr.road || addr.pedestrian || addr.footway || addr.path ||
-      addr.neighbourhood || addr.suburb || addr.quarter || addr.city_district;
-    const amenity = addr.amenity || addr.tourism || addr.shop || addr.building || addr.public_building;
-    const area = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || addr.city;
-    if (data.name && data.name.length < 60 && !S.isCoordLabel(data.name)) {
-      if (area && area !== data.name) return data.name + " · " + area;
-      return data.name;
-    }
-    if (amenity && road) return amenity + " · " + road;
-    if (amenity) return amenity + (area ? " · " + area : "");
-    if (road && area) return road + " · " + area;
-    if (road) return road;
-    if (area) return S.t("droppedPin") + " · " + area;
-    const first = (data.display_name || "").split(",")[0];
-    if (first && !S.isCoordLabel(first)) return first;
-    return S.t("droppedPin");
-  };
-
-  S.reverseGeocode = async function (lat, lon) {
-    const url =
-      "https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=17" +
-      "&lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
-    const res = await fetch(url, {
-      headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" },
-    });
-    if (!res.ok) return null;
-    return S.friendlyFromNominatim(await res.json());
-  };
-
-  S.geocode = async function (text) {
+  /** Online geocode (Transitous + Nominatim). Throws when offline. */
+  S.geocodeOnline = async function (text) {
     const q = encodeURIComponent(text.trim());
     const bias = S.TBILISI.center[0] + "," + S.TBILISI.center[1];
     let data = [];
     try {
-      data = await S.apiGet(
-        "/v1/geocode?text=" + q + "&language=" + S.lang + "&place=" + encodeURIComponent(bias)
-      );
-    } catch (e) {
-      data = [];
+      data = await S.apiGet("/v1/geocode?text=" + q + "&language=" + S.lang + "&place=" + encodeURIComponent(bias), { timeout: 8000 });
+    } catch (e) { data = []; }
+    let out = S.filterTbilisi(Array.isArray(data) ? data : []).map((r) => ({
+      type: r.type === "STOP" ? "STOP" : "PLACE", name: r.name, lat: r.lat, lon: r.lon,
+      area: ((r.areas || []).map((a) => a.name).filter(Boolean).slice(-2)[0]) || "",
+    }));
+    if (out.filter((r) => r.type !== "STOP").length < 2) {
+      try { out = out.concat(await S.nominatimSearch(text)); } catch (e) { /* ignore */ }
     }
-    let filtered = S.filterTbilisi(Array.isArray(data) ? data : []);
-    if (filtered.length < 2) {
+    return out;
+  };
+
+  /** Friendly label from Nominatim reverse JSON — never raw coords */
+  S.friendlyFromNominatim = function (data) {
+    if (!data || data.error) return null;
+    const a = data.address || {};
+    const road = a.road || a.pedestrian || a.footway || a.path || a.square;
+    const num = a.house_number;
+    const area = a.suburb || a.neighbourhood || a.quarter || a.city_district;
+    if (data.name && data.name.length < 50 && !S.isCoordLabel(data.name) && data.name !== road) return data.name;
+    if (road) return road + (num ? " " + num : "");
+    if (area) return area;
+    const first = (data.display_name || "").split(",")[0];
+    return first && !S.isCoordLabel(first) ? first : null;
+  };
+  const revCache = new Map();
+  S.reverseGeocode = async function (lat, lon) {
+    const key = lat.toFixed(4) + "," + lon.toFixed(4) + "," + S.lang;
+    if (revCache.has(key)) return revCache.get(key);
+    let name = null;
+    if (S.online) {
       try {
-        const extra = await S.nominatimSearch(text);
-        const seen = new Set(filtered.map((r) => r.name + "|" + r.lat.toFixed(4)));
-        extra.forEach((r) => {
-          const k = r.name + "|" + r.lat.toFixed(4);
-          if (!seen.has(k)) { filtered.push(r); seen.add(k); }
-        });
-      } catch (e) { /* ignore */ }
+        const url = "https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=18" +
+          "&lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+        const res = await fetch(url, { headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" } });
+        if (res.ok) name = S.friendlyFromNominatim(await res.json());
+      } catch (e) { S.setOnline(false); }
     }
-    return S.filterTbilisi(filtered).slice(0, 8);
+    if (!name) {
+      await S.loadStops();
+      const st = S.nearestStop(lat, lon, 300);
+      if (st) name = S.tf("nearStop", S.lang === "ka" ? st.ka : st.en);
+    }
+    if (name) revCache.set(key, name);
+    return name;
   };
-  S.placeFromResult = function (r) {
-    return { name: r.name, lat: r.lat, lon: r.lon, id: r.id, type: r.type, country: r.country || "GE" };
-  };
+
   S.placeFromLatLon = function (lat, lon, name) {
-    const n = name || S.t("droppedPin");
-    return { name: n, lat, lon, type: "PLACE", country: "GE", pendingLabel: !name };
-  };
-  S.setPlace = function (which, place, inputEl, opts) {
-    opts = opts || {};
-    if (which === "from") {
-      S.fromPlace = place;
-      S.fromInput.classList.toggle("has-place", !!place);
-    } else {
-      S.toPlace = place;
-      S.toInput.classList.toggle("has-place", !!place);
-    }
-    if (place && inputEl) {
-      const label = S.displayName(place);
-      /* Never show raw lat,lon in the field */
-      inputEl.value = S.isCoordLabel(label) ? S.t("droppedPin") : label;
-    }
-    if (!opts.skipMap && S.syncMapMarkers) S.syncMapMarkers();
-    if (S.updateTripSummary) S.updateTripSummary();
-    if (S.updatePeek) S.updatePeek();
-    if (S.updateMovePinButtons) S.updateMovePinButtons();
-    if (!opts.skipAdvance && place) {
-      if (S.afterPlaceSet) S.afterPlaceSet(which, opts);
-    }
+    return { name: name || S.t("droppedPin"), lat, lon, type: "PLACE", pendingLabel: !name };
   };
 
-  /** After pin drop: show friendly placeholder, then reverse-geocode */
-  S.resolvePinLabel = async function (which, lat, lon) {
-    const seq = ++S.reverseSeq[which];
+  /** Set a trip end. Keeps fields + markers + summary in sync. No navigation here. */
+  S.setPlace = function (which, place) {
+    if (which === "from") S.fromPlace = place; else S.toPlace = place;
     const input = which === "from" ? S.fromInput : S.toInput;
-    const place = which === "from" ? S.fromPlace : S.toPlace;
-    if (place && place.lat === lat && place.lon === lon) {
-      place.name = S.t("droppedPin");
-      place.pendingLabel = true;
-      input.value = place.name;
-    }
-    try {
-      const name = await S.reverseGeocode(lat, lon);
-      if (seq !== S.reverseSeq[which]) return;
-      const cur = which === "from" ? S.fromPlace : S.toPlace;
-      if (!cur || Math.abs(cur.lat - lat) > 1e-6 || Math.abs(cur.lon - lon) > 1e-6) return;
-      if (name) {
-        cur.name = name;
-        cur.pendingLabel = false;
-        input.value = name;
-        if (S.updateTripSummary) S.updateTripSummary();
-      }
-    } catch (e) {
-      /* keep "Dropped pin" */
-    }
+    input.value = place ? S.displayName(place) : "";
+    if (S.syncMapMarkers) S.syncMapMarkers();
+    if (S.updateTripPoints) S.updateTripPoints();
+    if (place && !place.pendingLabel) S.addRecentPlace(place);
+  };
+  /** Fill a pending "Pinned place" label later via reverse geocode */
+  S.resolvePlaceLabel = async function (which) {
+    const p = which === "from" ? S.fromPlace : S.toPlace;
+    if (!p || !p.pendingLabel) return;
+    const name = await S.reverseGeocode(p.lat, p.lon);
+    const cur = which === "from" ? S.fromPlace : S.toPlace;
+    if (cur !== p || !name) return;
+    p.name = name; p.pendingLabel = false;
+    S.setPlace(which, p);
   };
 
-  S.renderSuggest = function (box, items, which, inputEl) {
-    box.innerHTML = "";
-    if (!items.length) { box.classList.remove("open"); return; }
-    items.forEach((r, i) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.setAttribute("role", "option");
-      if (i === 0) btn.classList.add("active");
-      btn.innerHTML = '<div class="name"></div><div class="meta"></div>';
-      btn.querySelector(".name").textContent = r.name;
-      btn.querySelector(".meta").textContent = S.areaHint(r);
-      btn.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        const other = which === "from" ? S.toPlace : S.fromPlace;
-        S.setPlace(which, S.placeFromResult(r), inputEl, {
-          triggerPlan: !!other,
-        });
-        box.classList.remove("open");
-        if (S.setSheet && S.sheetSnap !== "peek") S.setSheet("mid");
-      });
-      box.appendChild(btn);
-    });
-    box.classList.add("open");
+  /* —— Recents (localStorage; work offline) —— */
+  function readLS(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
+  function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* quota */ } }
+  S.recentPlaces = function () { return readLS("tt-recent-places", []); };
+  S.addRecentPlace = function (p) {
+    if (!p || p.isGps || S.isCoordLabel(p.name)) return;
+    const list = S.recentPlaces().filter((r) => S.distM(r.lat, r.lon, p.lat, p.lon) > 40);
+    list.unshift({ name: p.name, nameKa: p.nameKa, lat: p.lat, lon: p.lon, type: p.type, kind: p.kind });
+    writeLS("tt-recent-places", list.slice(0, 8));
   };
-  S.debounceGeocode = function (which) {
-    clearTimeout(S.timers[which]);
-    S.timers[which] = setTimeout(async () => {
-      const inputEl = which === "from" ? S.fromInput : S.toInput;
-      const box = which === "from" ? S.fromSuggest : S.toSuggest;
-      const text = inputEl.value.trim();
-      S.setPlace(which, null, null, { skipMap: true, skipAdvance: true });
-      inputEl.classList.remove("has-place");
-      if (S.syncMapMarkers) S.syncMapMarkers();
-      if (text.length < 2) { box.classList.remove("open"); return; }
-      try {
-        S.statusEl.textContent = S.t("searching");
-        S.statusEl.classList.remove("error");
-        S.renderSuggest(box, await S.geocode(text), which, inputEl);
-        S.statusEl.textContent = "";
-      } catch (err) {
-        S.statusEl.textContent = S.t("error");
-        S.statusEl.classList.add("error");
-        box.classList.remove("open");
-      }
-    }, 280);
+  S.recentTrips = function () { return readLS("tt-recent-trips", []); };
+  S.saveTrip = function (from, to, itineraries) {
+    const slim = (itineraries || []).map((it) => Object.assign({}, it, {
+      legs: (it.legs || []).map((l) => {
+        const c = Object.assign({}, l);
+        delete c.intermediateStops; delete c.alternatives; delete c.steps;
+        return c;
+      }),
+    }));
+    const strip = (p) => ({ name: p.name, nameKa: p.nameKa, lat: p.lat, lon: p.lon, type: p.type });
+    const list = S.recentTrips().filter((t) =>
+      !(S.distM(t.from.lat, t.from.lon, from.lat, from.lon) < 60 && S.distM(t.to.lat, t.to.lon, to.lat, to.lon) < 60));
+    list.unshift({ from: strip(from), to: strip(to), at: Date.now(), itineraries: slim });
+    writeLS("tt-recent-trips", list.slice(0, 5));
+  };
+  S.findSavedTrip = function (from, to) {
+    return S.recentTrips().find((t) =>
+      S.distM(t.from.lat, t.from.lon, from.lat, from.lon) < 80 && S.distM(t.to.lat, t.to.lon, to.lat, to.lon) < 80);
   };
 
-  S.setPanelMode = function (mode) {
-    const panel = $("panel");
-    if (!panel) return;
-    panel.setAttribute("data-mode", mode);
-    const summary = $("trip-summary");
-    if (summary) {
-      if (mode === "results" && S.fromPlace && S.toPlace) {
-        summary.hidden = false;
-        S.updateTripSummary();
-      } else {
-        summary.hidden = true;
-      }
-    }
-    if (S.afterPanelLayout) S.afterPanelLayout();
+  /* —— Online / offline indicator —— */
+  S.setOnline = function (v) {
+    if (S.online === v) return;
+    S.online = v;
+    paintOnline();
   };
+  function updateOnline() {
+    S.online = navigator.onLine !== false;
+    paintOnline();
+  }
+  function paintOnline() {
+    const pill = $("offline-pill");
+    if (pill) { pill.hidden = S.online; pill.textContent = S.t("offline"); }
+    document.documentElement.classList.toggle("is-offline", !S.online);
+  }
+  /* navigator.onLine can lie (captive / flaky networks): probe cheaply when it says online */
+  S.probeOnline = function () {
+    if (navigator.onLine === false) { S.setOnline(false); return; }
+    fetch("manifest.webmanifest?probe=" + Date.now(), { method: "HEAD", cache: "no-store" })
+      .then(() => S.setOnline(true)).catch(() => S.setOnline(false));
+  };
+  setInterval(() => { if (!S.online) S.probeOnline(); }, 15000);
+  window.addEventListener("online", updateOnline);
+  window.addEventListener("offline", updateOnline);
+  S.updateOnline = updateOnline;
 
-  S.updateTripSummary = function () {
-    const a = $("sum-from");
-    const b = $("sum-to");
-    if (!a || !b) return;
-    a.textContent = S.fromPlace ? S.displayName(S.fromPlace) : "—";
-    b.textContent = S.toPlace ? S.displayName(S.toPlace) : "—";
-  };
+  /* —— Keyboard-safe viewport vars (visualViewport) —— */
+  function updateVV() {
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    const top = vv ? vv.offsetTop : 0;
+    document.documentElement.style.setProperty("--vvh", Math.round(h) + "px");
+    document.documentElement.style.setProperty("--vvtop", Math.round(top) + "px");
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", updateVV);
+    window.visualViewport.addEventListener("scroll", updateVV);
+  }
+  window.addEventListener("resize", updateVV);
+  updateVV();
 
-  /**
-   * Pin state machine:
-   * - from: next map tap / search / GPS sets From
-   * - to: next sets To (auto after From in 99% path)
-   * - none: both set; map pans freely; Move pin / field focus / drag to adjust
-   */
-  S.armPinField = function (which) {
-    if (which !== "from" && which !== "to") {
-      S.pinMode = "none";
-      S.activePin = null;
-    } else {
-      S.pinMode = which;
-      S.activePin = which;
-    }
-    $("from-field").classList.toggle("armed", S.pinMode === "from");
-    $("to-field").classList.toggle("armed", S.pinMode === "to");
-    if (S.updateMapHint) S.updateMapHint();
-    if (S.updateMovePinButtons) S.updateMovePinButtons();
-    if (S.updatePeek) S.updatePeek();
-  };
-
-  S.disarmPins = function () {
-    S.armPinField(null);
-  };
-
-  S.updateMovePinButtons = function () {
-    const mf = $("move-from");
-    const mt = $("move-to");
-    const both = !!(S.fromPlace && S.toPlace);
-    if (mf) {
-      mf.hidden = !both;
-      mf.classList.toggle("active", S.pinMode === "from");
-    }
-    if (mt) {
-      mt.hidden = !both;
-      mt.classList.toggle("active", S.pinMode === "to");
-    }
-  };
-
-  S.updatePeek = function () {
-    const peek = $("peek-text");
-    const action = $("peek-action");
-    if (!peek) return;
-    if (S.fromPlace && S.toPlace) {
-      const a = S.displayName(S.fromPlace) || "A";
-      const b = S.displayName(S.toPlace) || "B";
-      peek.innerHTML =
-        '<span class="peek-a"></span><span class="peek-arrow">→</span><span class="peek-b"></span>';
-      peek.querySelector(".peek-a").textContent = a;
-      peek.querySelector(".peek-b").textContent = b;
-      if (action) {
-        action.hidden = false;
-        const n = (S.lastItineraries && S.lastItineraries.length) || 0;
-        action.textContent = n ? (typeof S.t("routesFound") === "function" ? S.t("routesFound")(n) : n + "") : S.t("peekSwipe");
-      }
-    } else if (S.fromPlace && !S.toPlace) {
-      peek.textContent = S.t("chooseDestination");
-      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
-    } else if (!S.fromPlace && S.toPlace) {
-      peek.textContent = S.t("chooseStart");
-      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
-    } else {
-      peek.textContent = S.t("peekPlan");
-      if (action) { action.hidden = false; action.textContent = S.t("peekSwipe"); }
-    }
-  };
-
-  /**
-   * After a place is set: advance arming for the common path; auto-plan when second lands.
-   * opts.autoPlan (default true for map/gps/suggest) — caller can disable.
-   * opts.fromUserFocus — don't re-advance if only focusing.
-   */
-  S.afterPlaceSet = function (which, opts) {
-    opts = opts || {};
-    const both = !!(S.fromPlace && S.toPlace);
-    if (both) {
-      S.disarmPins();
-      if (opts.autoPlan !== false && S.plan && !opts.skipPlan) {
-        /* Second end just placed — plan (map/GPS/suggest). Not on every keystroke. */
-        if (opts.triggerPlan) S.plan();
-      }
-      if (S.updatePeek) S.updatePeek();
-      return;
-    }
-    if (which === "from" && S.fromPlace && !S.toPlace) {
-      S.armPinField("to");
-      if (S.statusEl && !S.statusEl.classList.contains("error")) {
-        S.statusEl.textContent = S.t("chooseDestination");
-      }
-    } else if (which === "to" && S.toPlace && !S.fromPlace) {
-      S.armPinField("from");
-      if (S.statusEl && !S.statusEl.classList.contains("error")) {
-        S.statusEl.textContent = S.t("chooseStart");
-      }
-    } else if (!S.fromPlace && !S.toPlace) {
-      S.armPinField("from");
-    }
-    if (S.updatePeek) S.updatePeek();
-  };
+  S.loadStops();
+  updateOnline();
+  setTimeout(S.probeOnline, 1500);
 })();

@@ -1,13 +1,13 @@
 {
   "name": "Tbilisi Transit",
   "short_name": "Tbilisi Transit",
-  "description": "Trip planner for Tbilisi — full-bleed map, pins, Transitous routes",
+  "description": "Tbilisi trip planner — OSM map, Transitous routes, live buses, works offline",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#0f1419",
-  "theme_color": "#0f1419",
+  "orientation": "any",
+  "background_color": "#f6f7f9",
+  "theme_color": "#f6f7f9",
   "lang": "en",
   "icons": [
     {

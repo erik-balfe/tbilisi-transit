@@ -6,12 +6,15 @@ Trip planner for Tbilisi: **full-bleed MapLibre + OSM map**, pin drop, [Transito
 
 ## Features
 
-- From / To autocomplete (Transitous geocode + Nominatim), **bounded to Tbilisi** (≈ 41.60–41.85 N, 44.65–45.05 E)
-- **MapLibre GL JS** + OpenStreetMap raster tiles — tap to drop **From (A)** / **To (B)** pins, drag to move (no Leaflet / no third-party map banners)
-- Planned itinerary **polylines** on the map (`legGeometry.points` from Transitous), walk vs transit styling; tap an itinerary card to highlight it
-- Full-viewport map; controls in a collapsible overlay (bottom sheet on mobile, floating card on desktop)
-- Paste or open `geo:`, Google Maps, OSM URLs; query params `?from=lat,lon&to=lat,lon`, `?dest=…`
-- Installable **PWA** with **Web Share Target**
+- **Center-pin picker** (Yandex.Taxi style): move the map under a fixed pin, address bubble, **From here → To here → routes** with no extra taps
+- **Search mode** for typing: full-screen fields + suggestions above the keyboard (`visualViewport`, `interactive-widget=resizes-content`); recents, *My location*, *Choose on map*
+- **Offline stop search** from bundled TTC GTFS stops (`data/stops.json`, built by `tools/build_stops.py`), plus Transitous geocode + Nominatim online, bounded to Tbilisi
+- All route options drawn at once in distinct colours (red / green / blue / amber / purple…), walk legs dashed gray
+- **Live vehicles** on the selected option: Transitous `/api/v1/map/trips` segments (realtime-adjusted from TTC vehicle GPS where available, else scheduled), interpolated every second, refreshed every 15 s
+- Live **show-me** button (`watchPosition`, accuracy circle, heading), follow / recenter / off
+- Light + dark theme follow the system; accent from CSS `AccentColor` when the browser exposes it
+- MapLibre GL JS (self-hosted in `vendor/`) + OpenStreetMap raster tiles; one-finger double-tap-drag zoom, pinch, pan
+- **Offline-first PWA**: precached shell + MapLibre + stops, capped cache of tiles you viewed (no bulk prefetch), saved recent trips viewable offline, offline indicator; Web Share Target for Maps / `geo:` links
 
 ## Local
 
@@ -22,7 +25,8 @@ python3 server.py   # http://127.0.0.1:8765/  (proxies Transitous)
 ## Attribution
 
 - Transit data: [Transitous](https://transitous.org/) / [sources](https://transitous.org/sources/)
-- Map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors · rendered with [MapLibre GL JS](https://maplibre.org/)
+- Map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors · rendered with [MapLibre GL JS](https://maplibre.org/) (BSD-3, `vendor/maplibre/LICENSE.txt`)
+- Stops: TTC GTFS ([tbilisi-gtfs](https://gitlab.spline.de/spline/transitous/tbilisi-gtfs)) as used by Transitous
 
 ## Query / share examples
 

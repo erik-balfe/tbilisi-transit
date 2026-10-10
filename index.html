@@ -2,127 +2,140 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f1419" />
-  <meta name="description" content="Tbilisi trip planner — OSM map pins and Transitous routes" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#11151a" media="(prefers-color-scheme: dark)" />
+  <meta name="description" content="Tbilisi trip planner — OSM map, Transitous routes, live buses" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <title>Tbilisi Transit</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
+  <link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css" />
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
   <div id="map" role="application" aria-label="Tbilisi map"></div>
 
-  <div class="panel" id="panel" data-sheet="mid" data-mode="search" style="--sheet-h: 42dvh;">
+  <!-- Yandex-style fixed center pin for picking a point (pointer-events off except bubble) -->
+  <div class="center-pin" id="center-pin" data-target="from" hidden>
+    <button type="button" class="pin-bubble" id="pin-bubble"><span id="pin-addr"></span></button>
+    <div class="cp-head"><span id="cp-letter">A</span></div>
+    <div class="cp-stem"></div>
+    <div class="cp-dot"></div>
+  </div>
+
+  <div class="top-ui" id="top-ui">
+    <span class="offline-pill" id="offline-pill" hidden></span>
+    <span class="vehicle-chip" id="vehicle-chip" hidden></span>
+    <button type="button" class="lang-chip" id="lang-toggle" title="Language">KA</button>
+  </div>
+
+  <div class="panel" id="panel" data-mode="pick" data-sheet="mid">
+    <!-- Drag handle: trip mode only -->
     <div class="panel-handle" id="panel-handle" role="button" tabindex="0"
-         aria-controls="panel-body" aria-expanded="true" title="Drag sheet">
+         aria-controls="trip-view" aria-expanded="true" title="Drag">
       <span class="grip-bar" aria-hidden="true"></span>
       <div class="peek-row" id="peek-row">
-        <span class="peek-text" id="peek-text">Tbilisi Transit</span>
-        <span class="peek-action" id="peek-action" hidden></span>
+        <span class="peek-text" id="peek-text"></span>
+        <span class="peek-action" id="peek-action"></span>
       </div>
     </div>
 
-    <div class="panel-body" id="panel-body">
-      <header class="panel-header">
-        <h1 id="title">Tbilisi Transit</h1>
-        <div class="toolbar" role="group" aria-label="Language">
-          <button type="button" class="chip lang active" id="lang-en" data-lang="en">EN</button>
-          <button type="button" class="chip lang" id="lang-ka" data-lang="ka">KA</button>
-        </div>
-      </header>
+    <!-- 1) PICK: center-pin picker card -->
+    <section class="pick-card" id="pick-card" aria-live="polite">
+      <div class="pick-head">
+        <span class="pick-dot" aria-hidden="true"></span>
+        <h2 class="pick-title" id="pick-title">Where from?</h2>
+        <button type="button" class="text-btn" id="pick-cancel" hidden>Cancel</button>
+      </div>
+      <button type="button" class="pick-search" id="pick-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
+        <span class="pick-addr" id="pick-addr">Search address or stop</span>
+      </button>
+      <p class="pick-msg" id="pick-msg"></p>
+      <button type="button" class="btn-primary" id="pick-confirm">From here</button>
+    </section>
 
-      <div class="trip-summary" id="trip-summary" hidden>
-        <button type="button" class="trip-summary-btn" id="edit-trip" title="Edit">
-          <span class="trip-from" id="sum-from"></span>
-          <span class="trip-arrow" aria-hidden="true">→</span>
-          <span class="trip-to" id="sum-to"></span>
+    <!-- 2) SEARCH: full-screen typing mode (keyboard-safe) -->
+    <section class="search-view" id="search-view">
+      <div class="search-top">
+        <button type="button" class="icon-btn" id="search-back" aria-label="Back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
         </button>
-        <button type="button" class="chip compact" id="edit-trip-chip">Edit</button>
+        <div class="search-fields">
+          <div class="sfield from" id="from-field">
+            <span class="sf-pin" aria-hidden="true">A</span>
+            <input id="from" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" spellcheck="false" />
+            <button type="button" class="sf-clear" data-clear="from" aria-label="Clear">×</button>
+          </div>
+          <div class="sfield to" id="to-field">
+            <span class="sf-pin" aria-hidden="true">B</span>
+            <input id="to" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" spellcheck="false" />
+            <button type="button" class="sf-clear" data-clear="to" aria-label="Clear">×</button>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" id="search-swap" aria-label="Swap">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15M4 15l4 4 4-4M16 20V5M12 9l4-4 4 4"></path></svg>
+        </button>
       </div>
-
-      <div class="card search-card" id="search-card">
-        <div class="field" id="from-field">
-          <div class="field-label-row">
-            <label id="label-from" for="from">From</label>
-            <button type="button" class="chip compact move-pin-btn" id="move-from" hidden>Move pin</button>
-          </div>
-          <div class="field-row">
-            <span class="field-pin from" aria-hidden="true">A</span>
-            <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Freedom Square" />
-            <button type="button" class="loc-btn" id="loc-from" title="My location" aria-label="My location">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
-              </svg>
-            </button>
-          </div>
-          <div class="suggest" id="from-suggest" role="listbox"></div>
-        </div>
-        <div class="swap-row">
-          <button type="button" class="swap-btn" id="swap" title="Swap" aria-label="Swap">⇅</button>
-        </div>
-        <div class="field" id="to-field">
-          <div class="field-label-row">
-            <label id="label-to" for="to">To</label>
-            <button type="button" class="chip compact move-pin-btn" id="move-to" hidden>Move pin</button>
-          </div>
-          <div class="field-row">
-            <span class="field-pin to" aria-hidden="true">B</span>
-            <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Station Square" />
-            <button type="button" class="loc-btn" id="loc-to" title="My location" aria-label="My location">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
-              </svg>
-            </button>
-          </div>
-          <div class="suggest" id="to-suggest" role="listbox"></div>
-        </div>
-
-        <p class="pin-hint" id="map-hint">Tap map to set From</p>
-
-        <details class="more-tools" id="more-tools">
-          <summary id="label-more">More</summary>
-          <div class="more-body">
-            <div class="paste-block">
-              <label id="label-paste" for="paste">Paste a link</label>
-              <input id="paste" type="text" autocomplete="off" spellcheck="false"
-                     placeholder="geo:… · maps.google.com · openstreetmap.org" />
-              <div class="paste-actions">
-                <button type="button" class="chip" id="use-as-from">Use as start</button>
-                <button type="button" class="chip" id="use-as-to">Use as destination</button>
-              </div>
-            </div>
-            <div class="presets" id="presets">
-              <span class="presets-label" id="label-examples">Examples</span>
-              <button type="button" class="chip" id="preset-fs">Freedom → Station</button>
-              <button type="button" class="chip" id="preset-sf">Station → Freedom</button>
-            </div>
-          </div>
-        </details>
-
-        <button type="button" class="btn-primary" id="go">Plan trip</button>
+      <div class="search-quick">
+        <button type="button" class="quick-btn" id="q-myloc">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
+          <span id="q-myloc-label">My location</span>
+        </button>
+        <button type="button" class="quick-btn" id="q-map">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.3-6-10a6 6 0 1112 0c0 4.7-6 10-6 10z"></path><circle cx="12" cy="11" r="2"></circle></svg>
+          <span id="q-map-label">Choose on map</span>
+        </button>
       </div>
+      <div class="search-status" id="search-status"></div>
+      <div class="search-list" id="search-list" role="listbox"></div>
+    </section>
 
+    <!-- 3) TRIP: points + results (draggable sheet on mobile) -->
+    <section class="trip-view" id="trip-view">
+      <div class="trip-points">
+        <div class="tp-col">
+          <button type="button" class="trip-pt from" id="trip-from"><span class="tp-pin">A</span><span class="tp-name" id="tp-from-name"></span></button>
+          <button type="button" class="trip-pt to" id="trip-to"><span class="tp-pin">B</span><span class="tp-name" id="tp-to-name"></span></button>
+        </div>
+        <button type="button" class="icon-btn" id="trip-swap" aria-label="Swap">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15M4 15l4 4 4-4M16 20V5M12 9l4-4 4 4"></path></svg>
+        </button>
+      </div>
       <div class="status" id="status" aria-live="polite"></div>
       <div id="results"></div>
 
-      <footer id="footer">
-        <a href="https://transitous.org/" target="_blank" rel="noopener">Transitous</a>
-        · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>
-      </footer>
-    </div>
+      <details class="more-tools" id="more-tools">
+        <summary id="label-more">More</summary>
+        <div class="more-body">
+          <label id="label-paste" for="paste">Paste a link</label>
+          <input id="paste" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="geo:… · maps.google.com · openstreetmap.org" />
+          <div class="chip-row">
+            <button type="button" class="chip" id="use-as-from">Use as start</button>
+            <button type="button" class="chip" id="use-as-to">Use as destination</button>
+          </div>
+          <span class="mini-label" id="label-examples">Examples</span>
+          <div class="chip-row">
+            <button type="button" class="chip" id="preset-fs">Freedom → Station</button>
+            <button type="button" class="chip" id="preset-sf">Station → Freedom</button>
+          </div>
+        </div>
+      </details>
+      <footer id="footer"></footer>
+    </section>
   </div>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
+  <script src="vendor/maplibre/maplibre-gl.js"></script>
   <script src="app-data.js"></script>
   <script src="app-ui.js"></script>
   <script src="app-map.js"></script>
+  <script src="app-live.js"></script>
   <script src="app-share.js"></script>
   <script src="app-plan.js"></script>
   <script>

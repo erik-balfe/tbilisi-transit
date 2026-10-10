@@ -100,6 +100,8 @@
     }
     if (S.applyParsedLocation(which, parsed)) {
       S.statusEl.classList.remove("error");
+      S.pasteInput.value = "";
+      if (S.resume) S.resume(true);
     }
   };
 
