@@ -315,6 +315,10 @@
   function itineraryHasLive(it) { return (it.legs || []).some((l) => l.realTime); }
   function routeBadgesHtml(it, color) {
     const tx = S.textOn(color);
+    if ((it.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK")) {
+      return '<span class="route-badge walk"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"></circle><path d="M10 21l2-6 3 3v3M9 12l2-4 3 1 2 3M11 8l-2 5"></path></svg>' +
+        esc(S.t("walk")) + " · " + esc(S.formatDuration(it.duration)) + "</span>";
+    }
     return (it.legs || []).map((leg) => {
       const mode = (leg.mode || "WALK").toUpperCase();
       if (mode === "WALK") {
@@ -390,7 +394,8 @@
       '<div class="itin-detail"></div>';
     el.querySelector(".itin-dur").textContent = S.formatDuration(it.duration);
     el.querySelector(".itin-times").textContent = S.formatTime(it.startTime) + " – " + S.formatTime(it.endTime);
-    el.querySelector(".itin-meta").textContent = S.transferLabel(it.transfers || 0);
+    const walkOnly = (it.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK");
+    el.querySelector(".itin-meta").textContent = walkOnly ? S.t("walkOnly") : S.transferLabel(it.transfers || 0);
     el.querySelector(".itin-badges").innerHTML = routeBadgesHtml(it, color);
     el.querySelector(".itin-detail").appendChild(renderLegs(it, color));
     el.querySelector(".itin-summary").addEventListener("click", () => selectItin(index, true));
@@ -444,6 +449,13 @@
       const data = await S.apiGet(path, { timeout: 25000 });
       if (my !== planSeq) return;
       const list = (data.itineraries || []).slice(0, 4);
+      /* MOTIS returns short / walk-only trips in `direct`, not `itineraries` */
+      const walk = (data.direct || []).find((d) => (d.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK"));
+      if (walk) {
+        walk.walkOnly = true;
+        const best = list.length ? Math.min.apply(null, list.map((x) => x.duration || 1e9)) : 1e9;
+        if ((walk.duration || 0) <= best) list.unshift(walk); else list.push(walk);
+      }
       if (list.length) S.saveTrip(from, to, list);
       showResults(list, "");
     } catch (err) {
