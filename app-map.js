@@ -119,7 +119,11 @@
     map.addLayer({ id: "routes-sel-walk", type: "line", source: "routes", filter: ["all", sel, walk], layout: round,
       paint: { "line-color": ["get", "color"], "line-width": 4, "line-dasharray": [0.1, 1.8] } });
   }
-  const whenStyle = (fn) => (map.isStyleLoaded() ? fn() : map.once("load", fn));
+  let styleReady = false;
+  map.on("load", () => { styleReady = true; });
+  /* isStyleLoaded() is false while tiles load (or fail offline) → would wait for a "load" that already fired */
+  const whenStyle = (fn) => (styleReady || map.isStyleLoaded() ? fn() : map.once("load", fn));
+  S.whenStyle = whenStyle;
   map.on("load", () => { ensureLayers(); S.applyMapTheme(); map.resize(); });
 
   S.decodePolyline = function (encoded, precision) {
@@ -182,6 +186,10 @@
       }
     });
   };
+  /** Hide trip lines while a stop/line view is on top (keeps S.drawn for restore) */
+  S.hideRoutes = function () {
+    whenStyle(() => { ensureLayers(); map.getSource("routes").setData({ type: "FeatureCollection", features: [] }); });
+  };
   S.redrawRoutes = function () {
     if (S.drawn) S.drawAllItineraries(S.drawn.list, S.drawn.sel, { fit: false });
   };
@@ -200,7 +208,7 @@
   S.syncMapMarkers = function () {
     ["from", "to"].forEach((w) => {
       const p = w === "from" ? S.fromPlace : S.toPlace;
-      const hide = S.mode === "pick" && S.pickTarget === w;
+      const hide = (S.mode === "pick" && S.pickTarget === w) || S.mode === "stop" || S.mode === "line";
       if (!p || hide) {
         if (markers[w]) { markers[w].remove(); markers[w] = null; }
         return;
@@ -319,14 +327,14 @@
     S.setSheet(nearestSnap(panelRect().height, d.v));
   }
   handle.addEventListener("pointerdown", (e) => {
-    if (S.mode !== "trip") return;
+    if (!S.isSheetMode()) return;
     if (!S.isMobile()) return;
     e.preventDefault();
     dragStart(e.clientY, e.pointerId, false);
   });
   handle.addEventListener("pointermove", (e) => { if (drag && !drag.fromBody) { e.preventDefault(); dragMove(e.clientY); } });
   handle.addEventListener("pointerup", () => {
-    if (!S.isMobile()) { if (S.mode === "trip") S.setSheet(S.sheetSnap === "peek" ? "mid" : "peek"); return; }
+    if (!S.isMobile()) { if (S.isSheetMode()) S.setSheet(S.sheetSnap === "peek" ? "mid" : "peek"); return; }
     dragEnd();
   });
   handle.addEventListener("pointercancel", dragEnd);
@@ -334,9 +342,9 @@
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.setSheet(S.sheetSnap === "peek" ? "mid" : S.sheetSnap === "mid" ? "full" : "peek"); }
   });
   /* Pull the sheet down from the content when it is scrolled to top (Uber-like) */
-  const tripView = $("trip-view");
+  function bodyDrag(tripView) {
   tripView.addEventListener("touchstart", (e) => {
-    if (S.mode !== "trip" || !S.isMobile() || e.touches.length !== 1) return;
+    if (!S.isSheetMode() || !S.isMobile() || e.touches.length !== 1) return;
     if (tripView.scrollTop > 0) return;
     dragStart(e.touches[0].clientY, null, true);
     drag.armed = false;
@@ -355,6 +363,8 @@
     dragMove(y);
   }, { passive: false });
   tripView.addEventListener("touchend", () => { if (drag && drag.fromBody) { if (drag.armed) dragEnd(); else drag = null; } });
+  }
+  ["trip-view", "stop-view", "line-view"].forEach((id) => $(id) && bodyDrag($(id)));
 
   /* —— Center-pin picker —— */
   const cpin = $("center-pin");
@@ -489,6 +499,7 @@
   function onPos(pos) {
     const c = pos.coords;
     geo.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 0, t: Date.now() };
+    if (S.onGeoFix) S.onGeoFix(geo.fix);
     if (c.heading != null && !isNaN(c.heading) && (c.speed || 0) > 0.7) geo.heading = c.heading;
     renderFix();
     if (geo.state === "waiting") {
@@ -551,6 +562,7 @@
         const c = pos.coords;
         geo.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 0, t: Date.now() };
         if (geo.state !== "off") renderFix();
+        if (S.onGeoFix) S.onGeoFix(geo.fix);
         resolve(geo.fix);
       }, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 20000 });
     });
@@ -560,7 +572,7 @@
 
   window.addEventListener("resize", () => {
     map.resize();
-    if (S.mode === "trip" && S.isMobile()) S.setSheet(S.sheetSnap || "mid", { animate: false });
+    if (S.isSheetMode() && S.isMobile()) S.setSheet(S.sheetSnap || "mid", { animate: false });
     layoutOverlays();
   });
   setTimeout(() => map.resize(), 100);

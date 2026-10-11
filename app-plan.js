@@ -25,12 +25,13 @@
     panel.setAttribute("data-mode", mode);
     document.documentElement.setAttribute("data-mode", mode);
     if (mode === "pick") S.showCenterPin(S.pickTarget); else S.hideCenterPin();
-    if (mode !== "trip" && S.stopVehicles) S.stopVehicles();
-    if (mode === "trip") S.setSheet(S.sheetSnap && S.sheetSnap !== "full" ? S.sheetSnap : "mid");
+    if (S.stopVehicles) S.stopVehicles();
+    if (S.isSheetMode(mode)) S.setSheet(S.sheetSnap && S.sheetSnap !== "full" ? S.sheetSnap : "mid");
     else panel.style.removeProperty("--sheet-h");
     S.syncMapMarkers();
     requestAnimationFrame(() => { S.layoutOverlays(); S.map.resize(); });
     S.updatePeek();
+    if (S.onMode) S.onMode(mode);
   };
 
   /* —— Pick mode —— */
@@ -163,7 +164,7 @@
     if (r.type === "STOP") return r.kind === 1 ? "metro" : r.kind === 2 ? "cable" : "stop";
     return "place";
   }
-  function addItem(html, onPick, cls) {
+  function addItem(html, onPick, cls, extra) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "s-item" + (cls ? " " + cls : "");
@@ -172,8 +173,35 @@
     /* pointerdown+preventDefault keeps the keyboard/focus; click does the work */
     btn.addEventListener("pointerdown", (e) => e.preventDefault());
     btn.addEventListener("click", onPick);
-    listEl.appendChild(btn);
+    if (!extra) { listEl.appendChild(btn); return btn; }
+    /* row with a trailing secondary action (e.g. departures of a stop) */
+    const row = document.createElement("div");
+    row.className = "s-row";
+    row.appendChild(btn);
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "s-extra";
+    x.setAttribute("aria-label", extra.label);
+    x.title = extra.label;
+    x.innerHTML = extra.html;
+    x.addEventListener("pointerdown", (e) => e.preventDefault());
+    x.addEventListener("click", (e) => { e.stopPropagation(); extra.onClick(); });
+    row.appendChild(x);
+    listEl.appendChild(row);
     return btn;
+  }
+  S.searchAddItem = addItem;
+  S.searchAddHeader = function (t) { addHeader(t); };
+  function stopExtra(r) {
+    if (!S.openStop) return null;
+    let idx = r.idx;
+    if (idx == null && r.type === "STOP") { const st = S.nearestStop(r.lat, r.lon, 150); idx = st ? st.i : null; }
+    if (idx == null) return null;
+    return {
+      label: S.t("departures"),
+      html: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>',
+      onClick: () => S.openStop(idx),
+    };
   }
   function addHeader(text) {
     const h = document.createElement("div");
@@ -188,9 +216,15 @@
     return '<span class="s-ico ' + (iconKind || itemKind(r)) + '">' + icon(iconKind || itemKind(r)) + '</span>' +
       '<span class="s-txt"><span class="s-name">' + esc(name) + '</span><span class="s-meta">' + esc(meta) + "</span></span>";
   }
-  function renderRows(local, online) {
+  function renderRows(local, online, q) {
     listEl.innerHTML = "";
     const field = S.searchField;
+    const lines = S.searchLines ? S.searchLines(q || "") : [];
+    if (lines.length) {
+      addHeader(S.t("lines"));
+      lines.forEach((ln) => S.addLineRow(ln));
+      if (local.length || (online || []).length) addHeader(S.t("stopsPlaces"));
+    }
     const rows = [];
     const seen = [];
     const dup = (r) => seen.some((s) => S.norm(s.name) === S.norm(r.name) && S.distM(s.lat, s.lon, r.lat, r.lon) < 600);
@@ -198,8 +232,8 @@
     (online || []).forEach((r) => { if (!dup(r)) { rows.push(r); seen.push(r); } });
     rows.slice(0, 12).forEach((r) => addItem(placeRow(r), () => choosePlace(field, {
       name: r.name, nameKa: r.nameKa, lat: r.lat, lon: r.lon, type: r.type, kind: r.kind,
-    })));
-    if (!rows.length) {
+    }), "", r.type === "STOP" ? stopExtra(r) : null));
+    if (!rows.length && !lines.length) {
       const e = document.createElement("div");
       e.className = "s-empty";
       e.textContent = S.t("nothingFound");
@@ -209,6 +243,7 @@
   function renderRecents() {
     listEl.innerHTML = "";
     const field = S.searchField;
+    if (S.renderRecentLinesStops) S.renderRecentLinesStops(listEl);
     const trips = S.recentTrips().slice(0, 3);
     const places = S.recentPlaces().slice(0, 6);
     if (places.length) {
@@ -223,7 +258,7 @@
         esc(new Date(t.at).toLocaleDateString(S.lang === "ka" ? "ka-GE" : "en-GB", { day: "numeric", month: "short" })) + "</span></span>",
         () => { S.setPlace("from", t.from); S.setPlace("to", t.to); exitSearch(); }));
     }
-    if (!trips.length && !places.length) {
+    if (!trips.length && !places.length && !listEl.querySelector(".rl-chips")) {
       addHeader(S.t("examples"));
       [["freedom", "station"], ["station", "freedom"]].forEach(([a, b2]) => addItem(
         '<span class="s-ico trip">' + icon("trip") + '</span><span class="s-txt"><span class="s-name">' +
@@ -240,9 +275,9 @@
     sStatus.textContent = "";
     if (!q || (cur && q === S.displayName(cur))) { renderRecents(); return; }
     const local = S.searchStopsLocal(q, 6);
-    renderRows(local, []);
+    renderRows(local, [], q);
     if (!S.online) { sStatus.textContent = S.t("offlineSearch"); return; }
-    if (q.length < 3) return;
+    if (q.length < 3 || (S.isLineQuery && S.isLineQuery(q))) return;
     const my = ++netSeq;
     netTimer = setTimeout(async () => {
       sStatus.textContent = S.t("searching");
@@ -252,7 +287,7 @@
       sStatus.textContent = "";
       /* online STOPs after local, then places */
       online.sort((a, b2) => (a.type === "STOP" ? 0 : 1) - (b2.type === "STOP" ? 0 : 1));
-      renderRows(S.searchStopsLocal(q, 6), online);
+      renderRows(S.searchStopsLocal(q, 6), online, q);
     }, 320);
   }
   S.renderSearchList = renderList;
@@ -311,6 +346,13 @@
     }
   });
 
+  /** Leave search mode because a stop/line view takes over (no resume, no history pop) */
+  S.abandonSearch = function () {
+    if (S.mode !== "search") return;
+    document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    searchSnapshot = null;
+  };
+
   /* —— Planning + results —— */
   function itineraryHasLive(it) { return (it.legs || []).some((l) => l.realTime); }
   function routeBadgesHtml(it, color) {
@@ -343,12 +385,17 @@
       row.style.setProperty("--leg", isWalk ? "var(--muted)" : color);
       const head = isWalk
         ? esc(S.t("walk")) + " · " + esc(S.formatDuration(leg.duration))
-        : '<span class="route-num" style="background:' + color + ";color:" + S.textOn(color) + '">' + esc(route) + "</span> " +
+        : '<span class="route-num" data-route="' + esc(leg.routeId || "") + '" data-trip="' + esc(leg.tripId || "") + '" data-board="' + esc((leg.from && leg.from.stopId) || "") + '" role="button" tabindex="0" style="background:' + color + ";color:" + S.textOn(color) + '">' + esc(route) + "</span> " +
           esc(S.modeLabel(mode)) + (leg.headsign ? ' <span class="headsign">→ ' + esc(leg.headsign) + "</span>" : "");
       const rt = !isWalk ? (leg.realTime ? '<span class="badge live">' + S.t("live") + "</span>" : '<span class="badge sched">' + S.t("scheduled") + "</span>") : "";
       row.innerHTML = '<div class="leg-time">' + esc(S.formatTime(leg.startTime)) + "</div>" +
         '<div class="leg-line"></div><div class="leg-detail"><div class="leg-head">' + head + " " + rt + "</div>" +
         '<div class="leg-sub">' + esc(fromName) + (isWalk ? "" : " → " + esc(toName)) + "</div></div>";
+      const rn = row.querySelector(".route-num[data-route]");
+      if (rn && rn.dataset.route && S.openLineFromLeg) {
+        rn.title = S.t("showLine");
+        rn.addEventListener("click", (e) => { e.stopPropagation(); S.openLineFromLeg(rn.dataset.route, rn.dataset.trip, rn.dataset.board); });
+      }
       box.appendChild(row);
     });
     const end = document.createElement("div");
@@ -482,6 +529,7 @@
       peek.querySelector(".peek-a").textContent = S.displayName(S.fromPlace);
       peek.querySelector(".peek-b").textContent = S.displayName(S.toPlace);
     } else peek.textContent = S.t("title");
+    if (S.peekOverride && S.peekOverride(peek, action)) return;
     const n = (S.lastItineraries || []).length;
     action.textContent = n ? S.tf("routesFound", n) : "";
   };
@@ -516,6 +564,7 @@
     S.fromInput.placeholder = S.t("searchFrom");
     S.toInput.placeholder = S.t("searchTo");
     S.updateOnline();
+    if (S.applyLangLines) S.applyLangLines();
     S.updateTripPoints();
     S.updatePickCard();
     if (S.updateLocateLabels) S.updateLocateLabels();

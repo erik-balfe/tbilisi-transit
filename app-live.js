@@ -157,15 +157,23 @@
     chip("");
   };
   /** Start for the selected itinerary (index into S.lastItineraries) */
-  S.showVehicles = function (idx) {
-    S.stopVehicles();
-    const it = (S.lastItineraries || [])[idx];
-    if (!it || S.mode !== "trip") return;
-    ctx = buildCtx(it, S.itinColor(idx));
+  function start(c) {
+    ctx = c;
     if (!ctx) return;
     fetchSegments();
     timer = setInterval(fetchSegments, REFRESH_MS);
     tick = setInterval(render, 1000);
+  }
+  S.showVehicles = function (idx) {
+    S.stopVehicles();
+    const it = (S.lastItineraries || [])[idx];
+    if (!it || S.mode !== "trip") return;
+    start(buildCtx(it, S.itinColor(idx)));
+  };
+  /** Vehicles of one line (line view). c = {legs:[{routeId, dir, routeShortName, tripId, mode}], color, min, max} */
+  S.showLineVehicles = function (c) {
+    S.stopVehicles();
+    start(c);
   };
   document.addEventListener("visibilitychange", () => { if (!document.hidden && ctx) fetchSegments(); });
 })();

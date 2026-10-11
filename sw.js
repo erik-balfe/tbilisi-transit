@@ -1,7 +1,8 @@
 /* Tbilisi Transit service worker — offline-first shell, capped tile cache, network-only APIs */
-const VERSION = "tt-shell-v8";
+const VERSION = "tt-shell-v9";
 const SHELL_CACHE = VERSION;
 const TILE_CACHE = "tt-tiles-v1";      /* only tiles the user actually viewed */
+const LINES_CACHE = "tt-lines-v1";     /* per-line GTFS files (?v=<build>), warmed once in background */
 const TILE_MAX = 1500;                  /* ~25–40 MB worst case */
 const TILE_FRESH_MS = 7 * 24 * 3600e3;  /* revalidate tiles older than a week */
 const SHELL = [
@@ -14,6 +15,8 @@ const SHELL = [
   "./app-live.js",
   "./app-share.js",
   "./app-plan.js",
+  "./app-lines.js",
+  "./data/lines.json",
   "./manifest.webmanifest",
   "./data/stops.json",
   "./vendor/maplibre/maplibre-gl.js",
@@ -34,7 +37,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL_CACHE && k !== TILE_CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL_CACHE && k !== TILE_CACHE && k !== LINES_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -90,6 +93,18 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.searchParams.has("probe")) return; /* connectivity probe: always network */
 
+  /* Line files: cache-first by exact URL (?v=<build>); fetched lazily or by the warm-up below */
+  if (url.pathname.includes("/data/lines/")) {
+    event.respondWith(caches.open(LINES_CACHE).then(async (c) => {
+      const hit = await c.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok) c.put(req, res.clone());
+      return res;
+    }));
+    return;
+  }
+
   /* Navigations: cache-first shell (instant open), update in background */
   if (req.mode === "navigate") {
     event.respondWith(
@@ -112,4 +127,19 @@ self.addEventListener("fetch", (event) => {
       return net;
     })
   );
+});
+
+/* Warm-up: the app posts every line URL once per data build; fetch the missing ones politely */
+self.addEventListener("message", (event) => {
+  const d = event.data || {};
+  if (d.type !== "warm-lines" || !Array.isArray(d.urls)) return;
+  event.waitUntil((async () => {
+    const c = await caches.open(LINES_CACHE);
+    const want = new Set(d.urls.map((u) => new URL(u, self.registration.scope).href));
+    for (const k of await c.keys()) if (!want.has(k.url)) await c.delete(k); /* drop old builds */
+    for (const u of want) {
+      if (await c.match(u)) continue;
+      try { const res = await fetch(u); if (res.ok) await c.put(u, res); } catch (e) { return; }
+    }
+  })());
 });

@@ -56,6 +56,11 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
         <span class="pick-addr" id="pick-addr">Search address or stop</span>
       </button>
+      <button type="button" class="nearby" id="nearby" hidden>
+        <span class="nb-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="14" rx="3"></rect><path d="M6 12h12M9 17.5V20M15 17.5V20"></path></svg></span>
+        <span class="nb-txt"><span class="nb-name" id="nb-name"></span><span class="nb-deps" id="nb-deps"></span></span>
+        <span class="nb-chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
+      </button>
       <p class="pick-msg" id="pick-msg"></p>
       <button type="button" class="btn-primary" id="pick-confirm">From here</button>
     </section>
@@ -129,6 +134,40 @@
       </details>
       <footer id="footer"></footer>
     </section>
+
+    <!-- 4) STOP: departures board -->
+    <section class="stop-view sheet-body" id="stop-view" aria-live="polite">
+      <div class="sv-head">
+        <button type="button" class="icon-btn" id="stop-back" aria-label="Back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+        </button>
+        <span class="sv-ico" id="sv-ico" aria-hidden="true"></span>
+        <div class="sv-titles"><h2 class="sv-title" id="sv-title"></h2><div class="sv-sub" id="sv-sub"></div></div>
+      </div>
+      <div class="sv-actions">
+        <button type="button" class="chip act" id="sv-from"></button>
+        <button type="button" class="chip act" id="sv-to"></button>
+      </div>
+      <div class="sv-lines" id="sv-lines"></div>
+      <div class="sv-status" id="sv-status"></div>
+      <div class="dep-list" id="dep-list"></div>
+      <p class="sv-foot" id="sv-foot"></p>
+    </section>
+
+    <!-- 5) LINE: one line, its direction, stops -->
+    <section class="line-view sheet-body" id="line-view" aria-live="polite">
+      <div class="sv-head">
+        <button type="button" class="icon-btn" id="line-back" aria-label="Back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+        </button>
+        <span id="lv-badge"></span>
+        <div class="sv-titles"><h2 class="sv-title" id="lv-title"></h2><div class="sv-sub" id="lv-sub"></div></div>
+      </div>
+      <div class="lv-dirs" id="lv-dirs" role="tablist"></div>
+      <div class="lv-board" id="lv-board" hidden></div>
+      <div class="sv-status" id="lv-status"></div>
+      <ol class="lv-stops" id="lv-stops"></ol>
+    </section>
   </div>
 
   <script src="vendor/maplibre/maplibre-gl.js"></script>
@@ -138,6 +177,7 @@
   <script src="app-live.js"></script>
   <script src="app-share.js"></script>
   <script src="app-plan.js"></script>
+  <script src="app-lines.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

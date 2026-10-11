@@ -56,6 +56,8 @@
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLon / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(a));
   };
+  S.SHEET_MODES = ["trip", "stop", "line"];
+  S.isSheetMode = function (m) { return S.SHEET_MODES.indexOf(m || S.mode) >= 0; };
   S.isMobile = function () { return window.matchMedia("(max-width: 799px)").matches; };
   S.isDark = function () { return window.matchMedia("(prefers-color-scheme: dark)").matches; };
 
@@ -115,10 +117,13 @@
   S.loadStops = function () {
     if (!stopsPromise) {
       stopsPromise = fetch("data/stops.json").then((r) => r.json()).then((d) => {
-        S.stops = (d.stops || []).map((s) => ({
-          en: s[0], ka: s[1], lat: s[2], lon: s[3], codes: s[4], kind: s[5],
-          _n: S.norm(s[0] + " " + s[1] + " " + s[4]),
-        }));
+        S.stopIndexById = new Map();
+        S.stops = (d.stops || []).map((s, i) => {
+          const ids = s[6] ? String(s[6]).split(" ") : [];
+          ids.forEach((id) => S.stopIndexById.set(id, i));
+          return { i, en: s[0], ka: s[1], lat: s[2], lon: s[3], codes: s[4], kind: s[5], ids,
+            _n: S.norm(s[0] + " " + s[1] + " " + s[4]) };
+        });
         return S.stops;
       }).catch(() => (S.stops = []));
     }
@@ -147,7 +152,7 @@
     }
     scored.sort((a, b) => b[0] - a[0] || a[1].en.length - b[1].en.length);
     return scored.slice(0, limit || 6).map(([, s]) => ({
-      type: "STOP", name: s.en, nameKa: s.ka, lat: s.lat, lon: s.lon, kind: s.kind, local: true,
+      type: "STOP", name: s.en, nameKa: s.ka, lat: s.lat, lon: s.lon, kind: s.kind, local: true, idx: s.i,
     }));
   };
   S.nearestStop = function (lat, lon, maxM) {
