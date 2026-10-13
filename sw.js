@@ -1,6 +1,6 @@
 /* Tbilisi Transit service worker — offline-first shell + capped tile cache.
    Timetable data and API responses are cached by the app in IndexedDB (app-store.js), not here. */
-const VERSION = "tt-shell-v11";
+const VERSION = "tt-shell-v12";
 const SHELL_CACHE = VERSION;
 const TILE_CACHE = "tt-tiles-v1";      /* only tiles the user actually viewed */
 const TILE_MAX = 1500;                  /* ~25–40 MB worst case */

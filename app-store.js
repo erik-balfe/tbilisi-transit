@@ -147,7 +147,7 @@
     if (rec && rec.hash === f.hash) return rec.body;
     try {
       const body = await fetchJSON(DATA_BASE + f.path, { timeout: 15000 });
-      idb.put("data", "line:" + key, { hash: f.hash, body });
+      await idb.put("data", "line:" + key, { hash: f.hash, body });
       return body;
     } catch (e) {
       if (rec) return rec.body; /* older version beats nothing */
