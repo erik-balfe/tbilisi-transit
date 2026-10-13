@@ -355,38 +355,103 @@
 
   /* —— Planning + results —— */
   function itineraryHasLive(it) { return (it.legs || []).some((l) => l.realTime); }
+  const METRO_SVG = '<svg class="metro-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5"></circle><path d="M6.5 17V7.5l5.5 7 5.5-7V17"></path></svg>';
+  const isTransit = (l) => (l.mode || "WALK").toUpperCase() !== "WALK";
+  const placeKey = (p) => (p && typeof p.lat === "number" ? p.lat.toFixed(3) + "," + p.lon.toFixed(3) : "?");
+  S.placeKey = placeKey;
+  S.isTransitLeg = isTransit;
+  /** "314", "M1", "G2": the code riders see */
+  S.legName = function (l) {
+    const line = S.lineFromRouteId ? S.lineFromRouteId(l.routeId) : null;
+    if (line) return line.code;
+    if (S.isMetroMode(l.mode)) return "M" + (l.routeShortName || "");
+    return l.routeShortName || l.displayName || S.modeLabel(l.mode);
+  };
+  S.legColor = function (l, fallback) {
+    if (!S.isMetroMode(l.mode)) return fallback;
+    const line = S.lineFromRouteId ? S.lineFromRouteId(l.routeId) : null;
+    return line ? line.color : S.METRO_RED;
+  };
+  /**
+   * Merge itineraries that ride the same path (same boarding/alighting stops, same transfers) and differ only
+   * by the bus number → one option "314 / 330 / 357". Direct options first, then those with transfers.
+   */
+  S.groupItineraries = function (list) {
+    const groups = new Map(), order = [];
+    (list || []).forEach((it) => {
+      const tl = (it.legs || []).filter(isTransit);
+      const sig = tl.length ? tl.map((l) => (S.isMetroMode(l.mode) ? "M" : "B") + placeKey(l.from) + ">" + placeKey(l.to)).join("|") : "walk";
+      let g = groups.get(sig);
+      if (!g) { g = []; groups.set(sig, g); order.push(g); }
+      g.push(it);
+    });
+    return order.map((ms) => {
+      ms = ms.slice().sort((a, b) => Date.parse(a.endTime) - Date.parse(b.endTime));
+      const rep = Object.assign({}, ms[0]);
+      const nT = (rep.legs || []).filter(isTransit).length;
+      rep.alts = [];
+      for (let i = 0; i < nT; i++) {
+        const names = [];
+        ms.forEach((m) => { const l = (m.legs || []).filter(isTransit)[i]; const n = l && S.legName(l); if (n && names.indexOf(n) < 0) names.push(n); });
+        rep.alts.push(names);
+      }
+      rep._allLegs = [].concat.apply([], ms.map((m) => (m.legs || []).filter(isTransit)));
+      rep.members = ms.length;
+      rep.direct = nT <= 1;
+      return rep;
+    }).sort((a, b) => (a.direct === b.direct ? 0 : a.direct ? -1 : 1) || Date.parse(a.endTime) - Date.parse(b.endTime));
+  };
   function routeBadgesHtml(it, color) {
     const tx = S.textOn(color);
     if ((it.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK")) {
       return '<span class="route-badge walk"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"></circle><path d="M10 21l2-6 3 3v3M9 12l2-4 3 1 2 3M11 8l-2 5"></path></svg>' +
         esc(S.t("walk")) + " · " + esc(S.formatDuration(it.duration)) + "</span>";
     }
+    let t = 0;
     return (it.legs || []).map((leg) => {
       const mode = (leg.mode || "WALK").toUpperCase();
       if (mode === "WALK") {
         const mins = Math.round((leg.duration || 0) / 60);
         return mins >= 2 ? '<span class="route-badge walk"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"></circle><path d="M10 21l2-6 3 3v3M9 12l2-4 3 1 2 3M11 8l-2 5"></path></svg>' + mins + "</span>" : "";
       }
-      const route = leg.routeShortName || leg.displayName || S.modeLabel(mode);
-      return '<span class="route-badge" style="background:' + color + ";color:" + tx + '">' + esc(route) + "</span>";
+      const names = (it.alts && it.alts[t]) || [S.legName(leg)];
+      t++;
+      if (S.isMetroMode(mode)) {
+        const mc = S.legColor(leg, color);
+        return '<span class="route-badge metro" style="background:' + mc + ";color:" + S.textOn(mc) + '">' + METRO_SVG + esc(names.join(" / ")) + "</span>";
+      }
+      return '<span class="route-badge" style="background:' + color + ";color:" + tx + '">' + esc(names.join(" / ")) + "</span>";
     }).filter(Boolean).join('<span class="badge-sep">›</span>');
   }
   function renderLegs(it, color) {
     const box = document.createElement("div");
     box.className = "legs";
-    (it.legs || []).forEach((leg) => {
+    let t = 0;
+    const legs = it.legs || [];
+    legs.forEach((leg, li) => {
       const mode = (leg.mode || "WALK").toUpperCase();
       const isWalk = mode === "WALK";
-      const route = leg.routeShortName || leg.displayName || "";
+      const isMetro = S.isMetroMode(mode);
+      const route = isWalk ? "" : S.legName(leg);
+      const alts = isWalk ? [] : ((it.alts && it.alts[t++]) || []).filter((n) => n !== route);
+      const prev = legs[li - 1], next = legs[li + 1];
+      const lc = isWalk ? null : S.legColor(leg, color);
       const fromName = leg.from && leg.from.name && leg.from.name !== "START" ? leg.from.name : S.displayName(S.fromPlace);
       const toName = leg.to && leg.to.name && leg.to.name !== "END" ? leg.to.name : S.displayName(S.toPlace);
       const row = document.createElement("div");
-      row.className = "leg" + (isWalk ? " walk" : "");
-      row.style.setProperty("--leg", isWalk ? "var(--muted)" : color);
+      row.className = "leg" + (isWalk ? " walk" : "") + (isMetro ? " metro" : "");
+      row.style.setProperty("--leg", isWalk ? "var(--muted)" : lc);
+      let walkLabel = S.t("walk");
+      if (isWalk && next && S.isMetroMode(next.mode)) walkLabel = S.tf("walkToMetro", (next.from && next.from.name) || "");
+      else if (isWalk && prev && next && isTransit(prev) && isTransit(next)) walkLabel = S.t("transferWalk") + " · " + S.t("walk").toLowerCase();
+      else if (isWalk && prev && S.isMetroMode(prev.mode)) walkLabel = S.t("exitMetro") + " · " + S.t("walk").toLowerCase();
+      const nStops = (leg.intermediateStops || []).length + 1;
       const head = isWalk
-        ? esc(S.t("walk")) + " · " + esc(S.formatDuration(leg.duration))
-        : '<span class="route-num" data-route="' + esc(leg.routeId || "") + '" data-trip="' + esc(leg.tripId || "") + '" data-board="' + esc((leg.from && leg.from.stopId) || "") + '" role="button" tabindex="0" style="background:' + color + ";color:" + S.textOn(color) + '">' + esc(route) + "</span> " +
-          esc(S.modeLabel(mode)) + (leg.headsign ? ' <span class="headsign">→ ' + esc(leg.headsign) + "</span>" : "");
+        ? esc(walkLabel) + " · " + esc(S.formatDuration(leg.duration))
+        : '<span class="route-num' + (isMetro ? " metro" : "") + '" data-route="' + esc(leg.routeId || "") + '" data-trip="' + esc(leg.tripId || "") + '" data-board="' + esc((leg.from && leg.from.stopId) || "") + '" role="button" tabindex="0" style="background:' + lc + ";color:" + S.textOn(lc) + '">' + (isMetro ? METRO_SVG : "") + esc(route) + "</span> " +
+          esc(S.modeLabel(mode)) + (leg.headsign ? ' <span class="headsign">→ ' + esc(leg.headsign) + "</span>" : "") +
+          (isMetro ? ' <span class="headsign">· ' + esc(S.tf("metroStops", nStops)) + "</span>" : "") +
+          (alts.length ? ' <span class="alts">' + esc(S.tf("orAlso", alts.join(", "))) + "</span>" : "");
       const rt = !isWalk ? (leg.realTime ? '<span class="badge live">' + S.t("live") + "</span>" : '<span class="badge sched">' + S.t("scheduled") + "</span>") : "";
       row.innerHTML = '<div class="leg-time">' + esc(S.formatTime(leg.startTime)) + "</div>" +
         '<div class="leg-line"></div><div class="leg-detail"><div class="leg-head">' + head + " " + rt + "</div>" +
@@ -449,6 +514,7 @@
     return el;
   }
   function showResults(list, note) {
+    list = S.groupItineraries(list);
     S.lastItineraries = list;
     S.selectedItin = 0;
     S.resultsEl.innerHTML = "";
@@ -460,10 +526,22 @@
       S.updatePeek();
       return;
     }
-    list.forEach((it, i) => S.resultsEl.appendChild(renderItinerary(it, i)));
+    let section = null;
+    list.forEach((it, i) => {
+      const sec = it.direct ? "direct" : "withTransfer";
+      if (sec !== section) {
+        section = sec;
+        const h = document.createElement("h3");
+        h.className = "itin-section";
+        h.textContent = S.t(sec);
+        S.resultsEl.appendChild(h);
+      }
+      S.resultsEl.appendChild(renderItinerary(it, i));
+    });
     S.drawAllItineraries(list, 0, { fit: true });
     if (S.showVehicles) S.showVehicles(0);
     S.updatePeek();
+    if (S.updateAtStop) S.updateAtStop();
   }
   let planSeq = 0;
   S.plan = async function () {
@@ -493,11 +571,12 @@
     try {
       const path = "/v5/plan?fromPlace=" + encodeURIComponent(from.lat + "," + from.lon) +
         "&toPlace=" + encodeURIComponent(to.lat + "," + to.lon) +
-        "&arriveBy=false&language=" + S.lang + "&numItineraries=4";
+        "&arriveBy=false&language=" + S.lang + "&numItineraries=8" +
+        (S.ls.get("tt-avoid-metro", false) ? "&transitModes=BUS,AERIAL_LIFT" : "");
       const r = await S.apiCached(path, S.TTL.plan);
       const data = r.body;
       if (my !== planSeq) return;
-      const list = (data.itineraries || []).slice(0, 4);
+      const list = (data.itineraries || []).slice(0, 8);
       /* MOTIS returns short / walk-only trips in `direct`, not `itineraries` */
       const walk = (data.direct || []).find((d) => (d.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK"));
       if (walk) {
@@ -557,6 +636,8 @@
     $("search-back").setAttribute("aria-label", S.t("back"));
     ["search-swap", "trip-swap"].forEach((id) => $(id).setAttribute("aria-label", S.t("swap")));
     $("label-more").textContent = S.t("more");
+    $("label-avoid-metro").textContent = S.t("avoidMetro");
+    $("at-stop-btn").textContent = S.t("atStopBtn");
     $("label-paste").textContent = S.t("paste");
     $("label-examples").textContent = S.t("examples");
     $("use-as-from").textContent = S.t("useAsFrom");
@@ -600,6 +681,11 @@
     S.lang = S.lang === "ka" ? "en" : "ka";
     localStorage.setItem("tt-lang", S.lang);
     S.applyLang();
+  });
+  $("avoid-metro").checked = !!S.ls.get("tt-avoid-metro", false);
+  $("avoid-metro").addEventListener("change", (e) => {
+    S.ls.set("tt-avoid-metro", e.target.checked);
+    if (S.fromPlace && S.toPlace) S.plan();
   });
   $("use-as-from").addEventListener("click", () => S.consumePaste("from"));
   $("use-as-to").addEventListener("click", () => S.consumePaste("to"));

@@ -37,9 +37,14 @@
   function buildCtx(it, color) {
     const legs = [];
     let minLat = 90, minLon = 180, maxLat = -90, maxLon = -180;
-    (it.legs || []).forEach((leg) => {
+    /* grouped option "314 / 330": watch every bus of the group */
+    const seen = new Set();
+    (it._allLegs || it.legs || []).forEach((leg) => {
       const m = (leg.mode || "WALK").toUpperCase();
       if (m === "WALK" || !leg.routeId) return;
+      const k = leg.routeId + "|" + dirOf(leg.tripId, leg.routeId) + "|" + leg.tripId;
+      if (seen.has(k)) return;
+      seen.add(k);
       legs.push({ routeId: leg.routeId, dir: dirOf(leg.tripId, leg.routeId), routeShortName: leg.routeShortName || leg.displayName || "", tripId: leg.tripId, mode: m });
       S.legCoords(leg).forEach(([lon, lat]) => {
         minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
@@ -153,13 +158,15 @@
         mk.setLngLat(pos);
       }
       const el = mk.getElement();
-      el.style.setProperty("--veh", ctx.color);
-      el.style.setProperty("--veh-text", S.textOn(ctx.color));
+      const isMetro = s.mode === "SUBWAY" || s.mode === "METRO";
+      const vc = isMetro ? (S.METRO_RED || "#e5484d") : ctx.color;
+      el.style.setProperty("--veh", vc);
+      el.style.setProperty("--veh-text", S.textOn(vc));
       el.classList.toggle("rt", s.rt);
       el.classList.toggle("sched", !s.rt);
       el.classList.toggle("mine", s.mine);
       el.classList.toggle("metro", s.mode === "SUBWAY" || s.mode === "METRO");
-      el.querySelector(".veh-num").textContent = s.route;
+      el.querySelector(".veh-num").textContent = isMetro && !/^M/.test(s.route) ? "M" + s.route : s.route;
       el.title = s.route + " · " + (s.rt ? S.t("live") : S.t("scheduled")) + (s.mine ? " · " + S.t("yourBus") : "");
     });
     markers.forEach((mk, id) => { if (!seen.has(id)) { mk.remove(); markers.delete(id); } });

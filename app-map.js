@@ -96,8 +96,24 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", S.applyMapTheme);
 
   /* —— Route layers —— */
+  /* Metro station icon (canvas-drawn: the raster style has no glyphs) */
+  S.isMetroMode = (m) => ["SUBWAY", "METRO"].indexOf(String(m || "").toUpperCase()) >= 0;
+  S.METRO_RED = "#e5484d";
+  S.ensureMetroIcon = function () {
+    if (map.hasImage && map.hasImage("tt-metro")) return;
+    const px = 44, c = document.createElement("canvas");
+    c.width = c.height = px;
+    const g = c.getContext("2d");
+    g.beginPath(); g.arc(px / 2, px / 2, px / 2 - 2, 0, Math.PI * 2);
+    g.fillStyle = S.METRO_RED; g.fill();
+    g.lineWidth = 3; g.strokeStyle = "#ffffff"; g.stroke();
+    g.fillStyle = "#ffffff"; g.font = "bold 26px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("M", px / 2, px / 2 + 1);
+    map.addImage("tt-metro", g.getImageData(0, 0, px, px), { pixelRatio: 2 });
+  };
   function ensureLayers() {
     if (map.getSource("routes")) return;
+    S.ensureMetroIcon();
     const tc = themeColors();
     map.addSource("routes", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addSource("user-acc", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -118,6 +134,13 @@
       paint: { "line-color": ["get", "color"], "line-width": 7 } });
     map.addLayer({ id: "routes-sel-walk", type: "line", source: "routes", filter: ["all", sel, walk], layout: round,
       paint: { "line-color": ["get", "color"], "line-width": 4, "line-dasharray": [0.1, 1.8] } });
+    /* metro legs: rail-like white dashes inside the line colour */
+    map.addLayer({ id: "routes-sel-metro", type: "line", source: "routes", filter: ["all", sel, ["==", ["get", "metro"], 1]],
+      paint: { "line-color": "#ffffff", "line-width": 2, "line-dasharray": [2, 2] } });
+    /* metro stations used by the selected trip (board / exit = the station entrance to walk to) */
+    map.addSource("trip-metro", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "trip-metro", type: "symbol", source: "trip-metro",
+      layout: { "icon-image": "tt-metro", "icon-size": 1.15, "icon-allow-overlap": true } });
   }
   let styleReady = false;
   map.on("load", () => { styleReady = true; });
@@ -151,7 +174,11 @@
 
   S.clearRoute = function () {
     S.drawn = null;
-    whenStyle(() => { ensureLayers(); map.getSource("routes").setData({ type: "FeatureCollection", features: [] }); });
+    whenStyle(() => {
+      ensureLayers();
+      map.getSource("routes").setData({ type: "FeatureCollection", features: [] });
+      map.getSource("trip-metro").setData({ type: "FeatureCollection", features: [] });
+    });
   };
 
   /** Draw every option at once (distinct colors); selected one thicker and on top */
@@ -166,6 +193,7 @@
       const tc = themeColors();
       const features = [];
       const bounds = new maplibregl.LngLatBounds();
+      const stations = [];
       list.forEach((it, i) => {
         const color = S.itinColor(i);
         const selected = i === sel ? 1 : 0;
@@ -173,7 +201,11 @@
           const coords = S.legCoords(leg);
           if (coords.length < 2) return;
           const isWalk = (leg.mode || "WALK").toUpperCase() === "WALK" ? 1 : 0;
-          features.push({ type: "Feature", properties: { color: isWalk ? tc.walk : color, walk: isWalk, selected, itin: i },
+          const metro = S.isMetroMode(leg.mode) ? 1 : 0;
+          const ml = metro && S.lineFromRouteId ? S.lineFromRouteId(leg.routeId) : null;
+          if (metro && selected) [leg.from, leg.to].forEach((p) => p && stations.push({ type: "Feature", properties: {},
+            geometry: { type: "Point", coordinates: [p.lon, p.lat] } }));
+          features.push({ type: "Feature", properties: { color: isWalk ? tc.walk : metro ? (ml ? ml.color : S.METRO_RED) : color, walk: isWalk, metro, selected, itin: i },
             geometry: { type: "LineString", coordinates: coords } });
           if (selected) coords.forEach((c) => bounds.extend(c));
         });
@@ -181,6 +213,7 @@
       /* selected last so it renders above within the same layer group */
       features.sort((a, b2) => a.properties.selected - b2.properties.selected);
       map.getSource("routes").setData({ type: "FeatureCollection", features });
+      map.getSource("trip-metro").setData({ type: "FeatureCollection", features: stations });
       if (opts.fit !== false && !bounds.isEmpty()) {
         map.fitBounds(bounds, { padding: S.mapPadding(), maxZoom: 16, duration: opts.duration || 600 });
       }
@@ -188,7 +221,11 @@
   };
   /** Hide trip lines while a stop/line view is on top (keeps S.drawn for restore) */
   S.hideRoutes = function () {
-    whenStyle(() => { ensureLayers(); map.getSource("routes").setData({ type: "FeatureCollection", features: [] }); });
+    whenStyle(() => {
+      ensureLayers();
+      map.getSource("routes").setData({ type: "FeatureCollection", features: [] });
+      map.getSource("trip-metro").setData({ type: "FeatureCollection", features: [] });
+    });
   };
   S.redrawRoutes = function () {
     if (S.drawn) S.drawAllItineraries(S.drawn.list, S.drawn.sel, { fit: false });

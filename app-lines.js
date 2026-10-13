@@ -366,16 +366,23 @@
     map.addSource("line", { type: "geojson", data: EMPTY });
     map.addSource("line-stops", { type: "geojson", data: EMPTY });
     const round = { "line-join": "round", "line-cap": "round" };
-    map.addLayer({ id: "stops-all", type: "circle", source: "stops-all", minzoom: 14.5,
+    /* bus stops from z13.5 (small → bigger), metro stations (M icon) + cable cars from z11 */
+    map.addLayer({ id: "stops-all", type: "circle", source: "stops-all", minzoom: 13.5,
+      filter: ["!=", ["get", "k"], 1],
       layout: { visibility: "none" },
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 14.5, 4, 17, 8],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 13.5, 2.5, 15, 4.5, 17, 8],
         "circle-color": S.isDark() ? "#e9edf2" : "#ffffff",
-        "circle-stroke-color": ["match", ["get", "k"], 1, "#e5484d", 2, "#f0a020", "#2563eb"],
-        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 14.5, 2, 17, 3.5],
-        "circle-opacity": ["interpolate", ["linear"], ["zoom"], 14.5, 0, 15, 1],
-        "circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 14.5, 0, 15, 1],
+        "circle-stroke-color": ["match", ["get", "k"], 2, "#f0a020", "#2563eb"],
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 13.5, 1.5, 17, 3.5],
+        "circle-opacity": ["interpolate", ["linear"], ["zoom"], 13.5, 0, 14, 1],
+        "circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 13.5, 0, 14, 1],
       } });
+    if (S.ensureMetroIcon) S.ensureMetroIcon();
+    map.addLayer({ id: "stops-metro", type: "symbol", source: "stops-all", minzoom: 11,
+      filter: ["==", ["get", "k"], 1],
+      layout: { visibility: "none", "icon-image": "tt-metro", "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1],
+        "icon-allow-overlap": true } });
     map.addLayer({ id: "line-other", type: "line", source: "line", filter: ["==", ["get", "part"], "other"], layout: round,
       paint: { "line-color": ["get", "color"], "line-width": 3, "line-opacity": 0.3, "line-dasharray": [2, 1.5] } });
     map.addLayer({ id: "line-casing", type: "line", source: "line", filter: ["!=", ["get", "part"], "other"], layout: round,
@@ -413,8 +420,9 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeLayers);
   function updateStopDots() {
     if (!map.getLayer("stops-all")) return;
-    const on = S.mode === "pick" || S.mode === "stop" || S.mode === "line";
+    const on = S.mode === "pick" || S.mode === "stop" || S.mode === "line" || S.mode === "trip";
     map.setLayoutProperty("stops-all", "visibility", on ? "visible" : "none");
+    if (map.getLayer("stops-metro")) map.setLayoutProperty("stops-metro", "visibility", on ? "visible" : "none");
   }
   S.onMode = function (mode) {
     updateStopDots();
@@ -466,7 +474,7 @@
   /* Tap on map stop dots (delayed so double-tap / double-tap-drag zoom never opens a stop) */
   let tapT = null;
   map.on("click", (e) => {
-    if (!(S.mode === "pick" || S.mode === "stop" || S.mode === "line")) return;
+    if (!(S.mode === "pick" || S.mode === "stop" || S.mode === "line" || S.mode === "trip")) return;
     if (!map.getLayer("stops-all")) return;
     const p = e.point, r = S.isMobile() ? 14 : 8;
     const box = [[p.x - r, p.y - r], [p.x + r, p.y + r]];
@@ -476,7 +484,7 @@
         const f = map.queryRenderedFeatures(box, { layers: ["line-stops"] })[0];
         if (f) { selectLineStop(f.properties.i, true); return; }
       }
-      const g = map.queryRenderedFeatures(box, { layers: ["stops-all"] })[0];
+      const g = map.queryRenderedFeatures(box, { layers: ["stops-metro", "stops-all"] })[0];
       if (g) S.openStop(g.properties.i);
     }, 280);
   });
@@ -484,8 +492,8 @@
   map.on("mousemove", (e) => {
     if (S.isMobile() || !map.getLayer("stops-all")) return;
     const p = e.point;
-    const layers = S.mode === "line" ? ["line-stops", "stops-all"] : ["stops-all"];
-    const hit = (S.mode === "pick" || S.mode === "stop" || S.mode === "line") &&
+    const layers = S.mode === "line" ? ["line-stops", "stops-all", "stops-metro"] : ["stops-all", "stops-metro"];
+    const hit = (S.mode === "pick" || S.mode === "stop" || S.mode === "line" || S.mode === "trip") &&
       map.queryRenderedFeatures([[p.x - 6, p.y - 6], [p.x + 6, p.y + 6]], { layers }).length;
     map.getCanvas().style.cursor = hit ? "pointer" : "";
   });

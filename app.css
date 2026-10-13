@@ -642,3 +642,27 @@ footer a { color: var(--muted); }
 .peek-stop svg { width: 17px; height: 17px; }
 .peek-text .line-badge { height: 1.35rem; min-width: 2rem; font-size: 0.78rem; vertical-align: 1px; }
 .route-num[data-route] { cursor: pointer; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+/* —— grouped results, metro, at-stop —— */
+.itin-section { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 2px 4px; }
+.route-badge.metro, .route-num.metro { display: inline-flex; align-items: center; gap: 3px; }
+.metro-ico { width: 14px; height: 14px; flex: none; }
+.metro-ico circle { fill: none; stroke: currentColor; stroke-width: 2; }
+.metro-ico path { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linejoin: round; }
+.leg.metro .leg-line { background: repeating-linear-gradient(to bottom, var(--leg) 0 6px, transparent 6px 9px); }
+.alts { color: var(--muted); font-size: 12.5px; }
+.trip-opts { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 4px; }
+.trip-opts .chip.on { background: var(--accent, AccentColor); color: #fff; }
+.at-stop { border: 2px solid var(--accent, AccentColor); border-radius: 14px; padding: 10px 12px; margin: 6px 0 10px; background: var(--surface2); }
+.at-stop[hidden], #at-stop-btn[hidden] { display: none; }
+.as-head { font-weight: 800; font-size: 16px; margin-bottom: 6px; }
+.as-row { margin: 6px 0; }
+.as-label { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.as-row.direct .as-label { color: #16a34a; }
+.as-row.transfer .as-label { color: #d97706; }
+.as-lines { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.as-line { display: flex; align-items: center; gap: 6px; }
+.line-badge.big { font-size: 20px; padding: 4px 10px; min-width: 44px; text-align: center; border-radius: 9px; }
+.as-times { display: flex; gap: 6px; font-weight: 700; font-size: 14px; }
+.as-t.rt { color: #16a34a; }
+.as-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }

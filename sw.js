@@ -18,6 +18,7 @@ const SHELL = [
   "./app-plan.js",
   "./app-lines.js",
   "./app-offline.js",
+  "./app-atstop.js",
   "./manifest.webmanifest",
   "./vendor/maplibre/maplibre-gl.js",
   "./vendor/maplibre/maplibre-gl.css",

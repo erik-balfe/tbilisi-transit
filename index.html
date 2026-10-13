@@ -113,6 +113,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15M4 15l4 4 4-4M16 20V5M12 9l4-4 4 4"></path></svg>
         </button>
       </div>
+      <div class="trip-opts">
+        <label class="check-row"><input type="checkbox" id="avoid-metro" /> <span id="label-avoid-metro">Avoid metro</span></label>
+        <button type="button" class="chip" id="at-stop-btn" aria-pressed="false">At the stop</button>
+      </div>
+      <section class="at-stop" id="at-stop" aria-live="polite" hidden></section>
       <div class="status" id="status" aria-live="polite"></div>
       <div id="results"></div>
 
@@ -183,6 +188,7 @@
   <script src="app-plan.js"></script>
   <script src="app-lines.js"></script>
   <script src="app-offline.js"></script>
+  <script src="app-atstop.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
