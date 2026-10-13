@@ -46,8 +46,7 @@ test("line view: search by number, stops + timetable render, line file cached la
   await dataReady(page);
   await openLine(page, "314");
   await expect(page.locator("#lv-title")).not.toBeEmpty();
-  const stored = await page.evaluate(() => window.TTStore.linesStored());
-  expect(stored.done).toBeGreaterThanOrEqual(1);
+  await expect.poll(() => page.evaluate(() => window.TTStore.linesStored().then((c) => c.done)), { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
 });
 
 test("deep links ?line= and ?stop= work", async ({ page }) => {
