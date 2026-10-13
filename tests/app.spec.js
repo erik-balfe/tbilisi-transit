@@ -65,21 +65,24 @@ test("offline: reload works from cache, stops + line view from IndexedDB, no pol
   await dataReady(page);
   await swReady(page);
   await dataReady(page);
-  await openLine(page, "314");                   /* caches the line file */
+  await openLine(page, "314");                   /* caches the line file in IndexedDB */
+  await page.goBack().catch(() => {});
   await page.waitForTimeout(500);
   await context.setOffline(true);
   const reqs = [];
   page.on("request", (r) => reqs.push(r.url()));
-  /* Playwright's WebKit can't reload while emulating offline ("internal error"); there we check the in-page offline path */
-  if (browserName === "webkit") await page.evaluate(() => { window.dispatchEvent(new Event("offline")); window.__tt.nav && window.__tt.goBack && window.__tt.goBack(); });
-  else await page.reload();
+  if (browserName === "webkit") {
+    /* Playwright's WebKit can't reload under emulated offline ("internal error") → check the in-page offline path */
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await page.evaluate(() => window.__tt.stopLines && window.__tt.enterPick && window.__tt.enterPick("from"));
+  } else {
+    await page.reload();
+  }
   await dataReady(page);
   await expect(page.locator("#offline-pill")).toBeVisible();
-  if (browserName === "webkit") await page.goto("about:blank").catch(() => {}), await page.goBack().catch(() => {});
+  const line = await page.evaluate(() => window.__tt.store.getLine(window.__tt.lines.find((l) => l.code === "314").key).then((d) => d.dirs.length));
+  expect(line).toBeGreaterThan(0);
   if (browserName !== "webkit") await openLine(page, "314");
-  else expect(await page.evaluate(async () => (await window.__tt.loadLine("R98190").catch(() => null)) !== undefined)).toBeTruthy();
-  /* scheduled departures from the local timetable at a stop */
-  await page.locator("#lv-stops li").nth(1).click().catch(() => {});
   /* no network polling while idle offline (old app probed every 15 s) */
   const before = reqs.length;
   await page.waitForTimeout(17_000);
