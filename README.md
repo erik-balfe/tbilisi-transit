@@ -42,3 +42,14 @@ https://erik-balfe.github.io/tbilisi-transit/?stop=1241
 Rebuild data after a GTFS update: `python3 tools/build_lines.py ge_tbilisi-transport-company.gtfs.zip` (also rewrites `data/stops.json`; shapes are fetched once from Transitous and cached in `tools/.shape-cache/`).
 
 Share Target (installed PWA): system Share → Tbilisi Transit with a Maps URL / `geo:` / lat,lon text.
+
+## Data architecture (no data in the code)
+
+- Timetable data is **not** in this branch. The `data` workflow (daily 02:17 UTC + manual) downloads the TTC GTFS from
+  Transitous, runs `tools/build_stops.py` + `tools/build_lines.py`, validates it (`tools/publish_data.py`, fails on an
+  expired/broken feed) and commits content-hashed files + `manifest.json` to the `data` branch — only when something changed.
+- The `pages` workflow deploys `main` + the `data` branch (under `/data/`) to GitHub Pages (same origin → no CORS).
+- The app (`app-store.js`) keeps the data in IndexedDB, renders from it instantly, checks the manifest in the background
+  (start, ≤ daily, on reconnect) and downloads only files whose hash changed. Per-line files are lazy; "Keep all lines
+  offline" downloads all of them. API responses are cached per endpoint (TTL + stale fallback).
+- Tests: `npm ci && tools/assemble_site.sh <data-checkout> _site && npx playwright test` (CI: `ci` workflow).

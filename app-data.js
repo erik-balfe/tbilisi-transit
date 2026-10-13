@@ -1,7 +1,5 @@
 (function () {
-  const API = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
-    ? "/api"
-    : "https://api.transitous.org/api";
+  const API = "https://api.transitous.org/api"; /* CORS: Access-Control-Allow-Origin: * */
   const UA_NOTE = "TbilisiTransitUI/1.8";
 
   /* Rough Tbilisi metro area */
@@ -105,6 +103,13 @@
       stopKind: ["Bus stop", "Metro", "Cable car"],
       nothingFound: "Nothing found",
       offline: "Offline",
+      dataLoading: (p) => "Downloading timetable… " + p + "%",
+      dataFailed: "Timetable not downloaded yet — connect to the internet",
+      dataExpired: (d) => "Timetable expired " + d + " — waiting for an update",
+      dataExpiring: (n) => "Timetable data ends in " + n + (n === 1 ? " day" : " days"),
+      dataUpdated: "Timetable updated",
+      offlineAll: "Keep all lines offline (~2 MB)",
+      dataInfo: (v, d, a, b) => "Timetable " + v + " · valid until " + d + " · " + a + "/" + b + " lines offline",
       offlineSearch: "Offline — showing stops only",
       offlineSaved: (t) => "Offline — saved results from " + t,
       savedResults: (t) => "Saved results from " + t,
@@ -217,6 +222,13 @@
       stopKind: ["ავტობუსის გაჩერება", "მეტრო", "საბაგირო"],
       nothingFound: "ვერაფერი მოიძებნა",
       offline: "ოფლაინ",
+      dataLoading: (p) => "განრიგი იტვირთება… " + p + "%",
+      dataFailed: "განრიგი ჯერ არ ჩამოტვირთულა — დაუკავშირდით ინტერნეტს",
+      dataExpired: (d) => "განრიგს ვადა გაუვიდა " + d + " — ველოდებით განახლებას",
+      dataExpiring: (n) => "განრიგის მონაცემები მთავრდება " + n + " დღეში",
+      dataUpdated: "განრიგი განახლდა",
+      offlineAll: "ყველა ხაზი ოფლაინ (~2 MB)",
+      dataInfo: (v, d, a, b) => "განრიგი " + v + " · მოქმედებს " + d + "-მდე · ოფლაინ " + a + "/" + b + " ხაზი",
       offlineSearch: "ოფლაინ — მხოლოდ გაჩერებები",
       offlineSaved: (t) => "ოფლაინ — შენახული შედეგები " + t,
       savedResults: (t) => "შენახული შედეგები " + t,

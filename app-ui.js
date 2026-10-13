@@ -1,8 +1,10 @@
 /* Core state, i18n, geocoding (online + offline stops), recents, theme, offline flag */
 (function () {
   const { API, PRESETS, I18N, TBILISI, ITIN_COLORS } = window.TT;
+  const store = window.TTStore;
   const S = (window.__tt = {
     API, PRESETS, I18N, TBILISI, ITIN_COLORS,
+    store, ls: store.ls,
     lang: localStorage.getItem("tt-lang") || ((navigator.language || "").startsWith("ka") ? "ka" : "en"),
     fromPlace: null,
     toPlace: null,
@@ -95,40 +97,58 @@
   };
 
   /* —— Network —— */
+  function netError(e) {
+    if (!e || e.status) return; /* HTTP error: we are online */
+    if (e.name === "AbortError" || e instanceof TypeError) S.setOnline(false);
+  }
+  /** Uncached API GET (live data: vehicles, trip progress) */
   S.apiGet = async function (path, opts) {
-    const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), (opts && opts.timeout) || 20000);
     try {
-      let res;
-      try {
-        res = await fetch(S.API + path, { headers: { Accept: "application/json" }, signal: ctl.signal });
-      } catch (e) {
-        S.setOnline(false); /* network failure → offline indicator */
-        throw e;
-      }
+      const d = await store.fetchJSON(S.API + path, opts);
       S.setOnline(true);
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return await res.json();
-    } finally { clearTimeout(to); }
+      return d;
+    } catch (e) { netError(e); throw e; }
+  };
+  /** Cached API GET: opts {ttl, swr, maxStale, timeout} (see app-store.js). → {body, at, stale, cached} */
+  S.apiCached = async function (url, opts) {
+    const full = /^https?:/.test(url) ? url : S.API + url;
+    try {
+      const r = await store.cached(full, opts);
+      if (!r.cached) S.setOnline(true);
+      else if (r.stale) netError(r.error);
+      return r;
+    } catch (e) { netError(e); throw e; }
+  };
+  S.TTL = {
+    stoptimes: { ttl: 25e3, maxStale: 6 * 3600e3, timeout: 12000 },
+    trip: { ttl: 30e3, maxStale: 6 * 3600e3, timeout: 12000 },
+    plan: { ttl: 60e3, maxStale: 7 * 86400e3, timeout: 25000 },
+    geocode: { ttl: 3 * 86400e3, swr: 30 * 86400e3, timeout: 8000 },
+    reverse: { ttl: 30 * 86400e3, swr: 180 * 86400e3, timeout: 8000 },
   };
 
-  /* —— Offline stop index (bundled GTFS stops, precached by SW) —— */
+  /* —— Stop index (runtime data from IndexedDB / data/ manifest; see app-store.js) —— */
   let stopsPromise = null;
+  S.applyStops = function (d) {
+    S.stopIndexById = new Map();
+    S.stops = ((d && d.stops) || []).map((s, i) => {
+      const ids = s[6] ? String(s[6]).split(" ") : [];
+      ids.forEach((id) => S.stopIndexById.set(id, i));
+      return { i, en: s[0], ka: s[1], lat: s[2], lon: s[3], codes: s[4], kind: s[5], ids,
+        _n: S.norm(s[0] + " " + s[1] + " " + s[4]) };
+    });
+    return S.stops;
+  };
   S.loadStops = function () {
     if (!stopsPromise) {
-      stopsPromise = fetch("data/stops.json").then((r) => r.json()).then((d) => {
-        S.stopIndexById = new Map();
-        S.stops = (d.stops || []).map((s, i) => {
-          const ids = s[6] ? String(s[6]).split(" ") : [];
-          ids.forEach((id) => S.stopIndexById.set(id, i));
-          return { i, en: s[0], ka: s[1], lat: s[2], lon: s[3], codes: s[4], kind: s[5], ids,
-            _n: S.norm(s[0] + " " + s[1] + " " + s[4]) };
-        });
-        return S.stops;
-      }).catch(() => (S.stops = []));
+      stopsPromise = store.essentials().then((e) => {
+        if (!e) { stopsPromise = null; S.stops = S.stops || []; return S.stops; }
+        return S.applyStops(e.stops);
+      });
     }
     return stopsPromise;
   };
+  store.on("updated", (e) => { S.applyStops(e.stops); stopsPromise = Promise.resolve(S.stops); });
   S.norm = function (s) {
     return String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   };
@@ -173,10 +193,9 @@
     const b = S.TBILISI;
     const viewbox = [b.lonMin, b.latMax, b.lonMax, b.latMin].join(",");
     const url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&namedetails=1&limit=6" +
-      "&countrycodes=ge&bounded=1&viewbox=" + encodeURIComponent(viewbox) + "&q=" + encodeURIComponent(text.trim());
-    const res = await fetch(url, { headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" } });
-    if (!res.ok) return [];
-    const data = await res.json();
+      "&countrycodes=ge&bounded=1&viewbox=" + encodeURIComponent(viewbox) + "&accept-language=" + (S.lang === "ka" ? "ka,en" : "en") +
+      "&q=" + encodeURIComponent(text.trim().toLowerCase());
+    const data = (await S.apiCached(url, S.TTL.geocode)).body;
     return (Array.isArray(data) ? data : []).map((r) => {
       const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
       if (!S.inTbilisi(lat, lon)) return null;
@@ -189,11 +208,11 @@
   };
   /** Online geocode (Transitous + Nominatim). Throws when offline. */
   S.geocodeOnline = async function (text) {
-    const q = encodeURIComponent(text.trim());
+    const q = encodeURIComponent(text.trim().toLowerCase());
     const bias = S.TBILISI.center[0] + "," + S.TBILISI.center[1];
     let data = [];
     try {
-      data = await S.apiGet("/v1/geocode?text=" + q + "&language=" + S.lang + "&place=" + encodeURIComponent(bias), { timeout: 8000 });
+      data = (await S.apiCached("/v1/geocode?text=" + q + "&language=" + S.lang + "&place=" + encodeURIComponent(bias), S.TTL.geocode)).body;
     } catch (e) { data = []; }
     let out = S.filterTbilisi(Array.isArray(data) ? data : []).map((r) => ({
       type: r.type === "STOP" ? "STOP" : "PLACE", name: r.name, lat: r.lat, lon: r.lon,
@@ -223,14 +242,17 @@
     const key = lat.toFixed(4) + "," + lon.toFixed(4) + "," + S.lang;
     if (revCache.has(key)) return revCache.get(key);
     let name = null;
-    if (S.online) {
-      try {
-        const url = "https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=18" +
-          "&lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
-        const res = await fetch(url, { headers: { Accept: "application/json", "Accept-Language": S.lang === "ka" ? "ka,en" : "en" } });
-        if (res.ok) name = S.friendlyFromNominatim(await res.json());
-      } catch (e) { S.setOnline(false); }
-    }
+    try {
+      /* rounded to ~10 m so the cache actually hits; cached for weeks, works offline for known spots */
+      const url = "https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=18" +
+        "&accept-language=" + (S.lang === "ka" ? "ka,en" : "en") +
+        "&lat=" + lat.toFixed(4) + "&lon=" + lon.toFixed(4);
+      if (S.online) name = S.friendlyFromNominatim((await S.apiCached(url, S.TTL.reverse)).body);
+      else {
+        const rec = await store.idb.get("api", url);
+        if (rec) name = S.friendlyFromNominatim(rec.body);
+      }
+    } catch (e) { /* offline → nearest stop below */ }
     if (!name) {
       await S.loadStops();
       const st = S.nearestStop(lat, lon, 300);
@@ -265,8 +287,8 @@
   };
 
   /* —— Recents (localStorage; work offline) —— */
-  function readLS(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
-  function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* quota */ } }
+  const readLS = (k, d) => store.ls.get(k, d);
+  const writeLS = (k, v) => store.ls.set(k, v);
   S.recentPlaces = function () { return readLS("tt-recent-places", []); };
   S.addRecentPlace = function (p) {
     if (!p || p.isGps || S.isCoordLabel(p.name)) return;
@@ -309,15 +331,21 @@
     if (pill) { pill.hidden = S.online; pill.textContent = S.t("offline"); }
     document.documentElement.classList.toggle("is-offline", !S.online);
   }
-  /* navigator.onLine can lie (captive / flaky networks): probe cheaply when it says online */
+  /* navigator.onLine can lie (captive / flaky networks): probe on demand only —
+     at start, when the tab becomes visible, on the online event, and before user actions while offline. No polling. */
+  let probing = null;
   S.probeOnline = function () {
-    if (navigator.onLine === false) { S.setOnline(false); return; }
-    fetch("manifest.webmanifest?probe=" + Date.now(), { method: "HEAD", cache: "no-store" })
-      .then(() => S.setOnline(true)).catch(() => S.setOnline(false));
+    if (navigator.onLine === false) { S.setOnline(false); return Promise.resolve(false); }
+    if (!probing) {
+      probing = fetch("manifest.webmanifest?probe=" + Date.now(), { method: "HEAD", cache: "no-store" })
+        .then(() => { S.setOnline(true); return true; }).catch(() => { S.setOnline(false); return false; })
+        .finally(() => { probing = null; });
+    }
+    return probing;
   };
-  setInterval(() => { if (!S.online) S.probeOnline(); }, 15000);
-  window.addEventListener("online", updateOnline);
+  window.addEventListener("online", () => { updateOnline(); S.probeOnline(); });
   window.addEventListener("offline", updateOnline);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !S.online) S.probeOnline(); });
   S.updateOnline = updateOnline;
 
   /* —— Keyboard-safe viewport vars (visualViewport) —— */

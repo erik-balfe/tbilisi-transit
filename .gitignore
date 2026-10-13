@@ -1,1 +1,6 @@
 tools/.shape-cache/
+data/
+node_modules/
+_site/
+test-results/
+playwright-report/

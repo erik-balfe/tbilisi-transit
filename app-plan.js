@@ -488,12 +488,14 @@
       }
       return false;
     };
+    if (!S.online) S.probeOnline(); /* on-demand connectivity check instead of polling */
     if (!S.online && fallback()) return;
     try {
       const path = "/v5/plan?fromPlace=" + encodeURIComponent(from.lat + "," + from.lon) +
         "&toPlace=" + encodeURIComponent(to.lat + "," + to.lon) +
         "&arriveBy=false&language=" + S.lang + "&numItineraries=4";
-      const data = await S.apiGet(path, { timeout: 25000 });
+      const r = await S.apiCached(path, S.TTL.plan);
+      const data = r.body;
       if (my !== planSeq) return;
       const list = (data.itineraries || []).slice(0, 4);
       /* MOTIS returns short / walk-only trips in `direct`, not `itineraries` */
@@ -503,8 +505,9 @@
         const best = list.length ? Math.min.apply(null, list.map((x) => x.duration || 1e9)) : 1e9;
         if ((walk.duration || 0) <= best) list.unshift(walk); else list.push(walk);
       }
-      if (list.length) S.saveTrip(from, to, list);
-      showResults(list, "");
+      if (list.length && !r.cached) S.saveTrip(from, to, list);
+      const t = new Date(r.at).toLocaleString(S.lang === "ka" ? "ka-GE" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+      showResults(list, r.stale ? S.tf(S.online ? "savedResults" : "offlineSaved", t) : "");
     } catch (err) {
       if (my !== planSeq) return;
       console.warn(err);

@@ -1,7 +1,7 @@
 /*
  * Stops & Lines: unified-search lines, line view (shape, direction, stops, live vehicles),
  * stop view (departures, live vs scheduled), nearby-stop row, map stop dots, back stack.
- * Data: data/lines.json (index) + data/lines/<key>.json (lazy, offline-cached) from TTC GTFS;
+ * Data: lines index + per-line files from the runtime data store (app-store.js, IndexedDB; lazy per line);
  * live: Transitous /v5/stoptimes, /v5/trip, /v1/map/trips. Design: docs/stops-lines-ux.md
  */
 (function () {
@@ -19,23 +19,32 @@
   S.lineByKey = new Map();
   S.loadLines = function () {
     if (!linesPromise) {
-      linesPromise = Promise.all([fetch("data/lines.json").then((r) => r.json()), S.loadStops()]).then(([d]) => {
-        S.linesBuilt = d.built || "1";
-        S.svcMask = d.svc || {};
-        S.lines = (d.lines || []).map((l, i) => ({ i, key: l[0], code: l[1], type: l[2], color: l[3], en: l[4], ka: l[5], terms: l[6] || [] }));
-        S.lines.forEach((l) => S.lineByKey.set(l.key, l));
-        S.stopLines = d.stopLines || [];
-        warmLines();
-        return S.lines;
+      linesPromise = Promise.all([S.store.essentials(), S.loadStops()]).then(([e]) => {
+        if (!e) { linesPromise = null; return S.lines; }
+        return applyLines(e.lines);
       }).catch((e) => { console.warn("lines", e); linesPromise = null; return []; });
     }
     return linesPromise;
   };
+  function applyLines(d) {
+    S.svcMask = d.svc || {};
+    S.lines = (d.lines || []).map((l, i) => ({ i, key: l[0], code: l[1], type: l[2], color: l[3], en: l[4], ka: l[5], terms: l[6] || [] }));
+    S.lineByKey = new Map();
+    S.lines.forEach((l) => S.lineByKey.set(l.key, l));
+    S.stopLines = d.stopLines || [];
+    return S.lines;
+  }
+  /* new data published while running: swap indexes, drop per-line + departure caches */
+  S.store.on("updated", (e) => {
+    applyLines(e.lines);
+    linesPromise = Promise.resolve(S.lines);
+    lineCache.clear(); depCache.clear();
+    if (S.paintStopDots) S.paintStopDots();
+  });
   const lineCache = new Map();
   S.loadLine = function (key) {
     if (lineCache.has(key)) return lineCache.get(key);
-    const p = S.loadLines().then(() => fetch("data/lines/" + encodeURIComponent(key) + ".json?v=" + S.linesBuilt))
-      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    const p = S.loadLines().then(() => S.store.getLine(key))
       .then((d) => {
         const dirs = (d.dirs || []).map((x) => {
           const stops = x.s.map((s) => ({ id: s[0], en: s[1], ka: s[2], lat: s[3], lon: s[4] }));
@@ -50,20 +59,6 @@
     lineCache.set(key, p);
     return p;
   };
-  /* Once per data build: let the SW fetch every line file in the background (offline-first) */
-  function warmLines() {
-    try {
-      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
-      if (navigator.connection && navigator.connection.saveData) return;
-      setTimeout(() => {
-        if (!S.online || !navigator.serviceWorker.controller) return;
-        navigator.serviceWorker.controller.postMessage({
-          type: "warm-lines", v: S.linesBuilt,
-          urls: S.lines.map((l) => "data/lines/" + encodeURIComponent(l.key) + ".json?v=" + S.linesBuilt),
-        });
-      }, 6000);
-    } catch (e) { /* ignore */ }
-  }
   S.loadLines();
 
   S.lineName = function (l) { return (S.lang === "ka" ? l.ka : l.en) || l.en || ""; };
@@ -156,8 +151,9 @@
     const stop = S.stops[idx];
     const ids = new Set(stop.ids);
     const res = await Promise.all(stop.ids.slice(0, 4).map((id) =>
-      S.apiGet("/v5/stoptimes?stopId=" + encodeURIComponent(RT_PREFIX + id) + "&n=30&language=" + S.lang, { timeout: 12000 })
-        .then((d) => d.stopTimes || []).catch(() => null)));
+      S.apiCached("/v5/stoptimes?stopId=" + encodeURIComponent(RT_PREFIX + id) + "&n=30&language=" + S.lang, S.TTL.stoptimes)
+        /* a copy older than 5 min is worse than the local timetable */
+        .then((r) => (r.stale && Date.now() - r.at > 300e3 ? null : (r.body.stopTimes || []))).catch(() => null)));
     if (res.every((r) => r === null)) throw new Error("stoptimes failed");
     const seen = new Set();
     const groups = new Map();
@@ -209,8 +205,8 @@
   };
 
   /* ———————————————— recents ———————————————— */
-  function readLS(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
-  function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* quota */ } }
+  const readLS = (k, d) => S.ls.get(k, d);
+  const writeLS = (k, v) => S.ls.set(k, v);
   function addRecentLine(key) { writeLS("tt-recent-lines", [key].concat(readLS("tt-recent-lines", []).filter((k) => k !== key)).slice(0, 8)); }
   function addRecentStop(idx) {
     const s = S.stops[idx];
@@ -399,12 +395,14 @@
         "circle-opacity": ["case", ["==", ["get", "past"], 1], 0.45, 1],
         "circle-stroke-opacity": ["case", ["==", ["get", "past"], 1], 0.45, 1],
       } });
-    S.loadStops().then(() => {
-      map.getSource("stops-all").setData({ type: "FeatureCollection", features: (S.stops || []).map((s) => ({
-        type: "Feature", properties: { i: s.i, k: s.kind }, geometry: { type: "Point", coordinates: [s.lon, s.lat] } })) });
-    });
+    S.loadStops().then(S.paintStopDots);
     updateStopDots();
   }
+  S.paintStopDots = function () {
+    const src = map.getSource("stops-all");
+    if (src) src.setData({ type: "FeatureCollection", features: (S.stops || []).map((s) => ({
+      type: "Feature", properties: { i: s.i, k: s.kind }, geometry: { type: "Point", coordinates: [s.lon, s.lat] } })) });
+  };
   whenStyle(ensure);
   function themeLayers() {
     if (!map.getLayer("line-casing")) return;
@@ -756,7 +754,7 @@
   }
   async function loadTripTimes(v, l) {
     try {
-      const d = await S.apiGet("/v5/trip?tripId=" + encodeURIComponent(v.tripId) + "&language=" + S.lang, { timeout: 12000 });
+      const d = (await S.apiCached("/v5/trip?tripId=" + encodeURIComponent(v.tripId) + "&language=" + S.lang, S.TTL.trip)).body;
       if (top() !== v) return;
       const leg = (d.legs || [])[0];
       if (!leg) return;

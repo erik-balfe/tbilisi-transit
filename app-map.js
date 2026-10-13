@@ -6,7 +6,7 @@
 
   const b = S.TBILISI;
   const maxBounds = [[b.lonMin - 0.1, b.latMin - 0.1], [b.lonMax + 0.1, b.latMax + 0.1]];
-  const saved = (() => { try { return JSON.parse(localStorage.getItem("tt-view")); } catch (e) { return null; } })();
+  const saved = S.ls.get("tt-view", null);
 
   /* Raster paint per theme. Dark = luminance inverted + hue restored (no extra tile server). */
   function rasterPaint(dark) {
@@ -65,7 +65,7 @@
 
   map.on("moveend", () => {
     const c = map.getCenter();
-    try { localStorage.setItem("tt-view", JSON.stringify({ c: [+c.lng.toFixed(5), +c.lat.toFixed(5)], z: +map.getZoom().toFixed(2) })); } catch (e) { /* ignore */ }
+    S.ls.set("tt-view", { c: [+c.lng.toFixed(5), +c.lat.toFixed(5)], z: +map.getZoom().toFixed(2) });
   });
 
   /* —— Theme —— */

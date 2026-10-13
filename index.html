@@ -30,6 +30,7 @@
 
   <div class="top-ui" id="top-ui">
     <span class="offline-pill" id="offline-pill" hidden></span>
+    <span class="data-pill" id="data-pill" role="status" hidden></span>
     <span class="vehicle-chip" id="vehicle-chip" hidden></span>
     <button type="button" class="lang-chip" id="lang-toggle" title="Language">KA</button>
   </div>
@@ -125,6 +126,8 @@
             <button type="button" class="chip" id="use-as-from">Use as start</button>
             <button type="button" class="chip" id="use-as-to">Use as destination</button>
           </div>
+          <label class="check-row"><input type="checkbox" id="offline-all" /> <span id="label-offline-all">Keep all lines offline</span></label>
+          <span class="mini-label" id="data-info"></span>
           <span class="mini-label" id="label-examples">Examples</span>
           <div class="chip-row">
             <button type="button" class="chip" id="preset-fs">Freedom → Station</button>
@@ -172,12 +175,14 @@
 
   <script src="vendor/maplibre/maplibre-gl.js"></script>
   <script src="app-data.js"></script>
+  <script src="app-store.js"></script>
   <script src="app-ui.js"></script>
   <script src="app-map.js"></script>
   <script src="app-live.js"></script>
   <script src="app-share.js"></script>
   <script src="app-plan.js"></script>
   <script src="app-lines.js"></script>
+  <script src="app-offline.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

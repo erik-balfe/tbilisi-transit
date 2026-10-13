@@ -4,7 +4,7 @@
  * for a time window. Each segment carries departure/arrival (realtime-adjusted when the TTC
  * GTFS-RT feed covers the trip: Transitous derives trip updates from TTC vehicle GPS) and a
  * `realTime` flag. We interpolate each vehicle along its current segment polyline every second
- * and refetch every 15 s. realTime=false → shown as "scheduled" (ghost style), honestly labelled.
+ * and refetch every 10 s, only for the part of the route/line that is on screen (viewport ∩ route bbox). realTime=false → shown as "scheduled" (ghost style), honestly labelled.
  */
 (function () {
   const S = window.__tt;
@@ -12,7 +12,9 @@
   const map = S.map;
   if (!map) return;
 
-  const REFRESH_MS = 15000;
+  const REFRESH_MS = 10000; /* Erik wants frequent updates; viewport-limited, paused in hidden tabs */
+  const MOVE_MIN_GAP = 4000; /* refetch after a pan/zoom, at most this often */
+  let lastFetch = 0, moveT = null;
   let timer = null, tick = null, seq = 0;
   let segs = [];           /* [{tripId, route, rt, dep, arr, coords, cum, total, color, mine}] */
   const markers = new Map(); /* tripId -> Marker */
@@ -70,14 +72,33 @@
     return c[c.length - 1];
   }
 
+  /** viewport (padded ~25 %) ∩ route bbox, or null when they don't overlap */
+  function queryBox() {
+    let b;
+    try { b = map.getBounds(); } catch (e) { return { min: ctx.min, max: ctx.max }; }
+    const padLat = (b.getNorth() - b.getSouth()) * 0.25, padLon = (b.getEast() - b.getWest()) * 0.25;
+    const min = [Math.max(ctx.min[0], b.getSouth() - padLat), Math.max(ctx.min[1], b.getWest() - padLon)];
+    const max = [Math.min(ctx.max[0], b.getNorth() + padLat), Math.min(ctx.max[1], b.getEast() + padLon)];
+    if (min[0] >= max[0] || min[1] >= max[1]) return null;
+    return { min, max };
+  }
+  map.on("moveend", () => {
+    if (!ctx || document.hidden) return;
+    clearTimeout(moveT);
+    moveT = setTimeout(fetchSegments, Math.max(600, MOVE_MIN_GAP - (Date.now() - lastFetch)));
+  });
+
   async function fetchSegments() {
     if (!ctx || document.hidden || !S.online) return;
+    const q = queryBox();
+    if (!q) { segs = []; render(); return; } /* route is off screen → nothing to fetch */
     const my = ++seq;
     const now = Date.now();
+    lastFetch = now;
     const start = new Date(now - 60000).toISOString();
     const end = new Date(now + 90000).toISOString();
-    const path = "/v1/map/trips?min=" + ctx.min.map((v) => v.toFixed(4)).join(",") +
-      "&max=" + ctx.max.map((v) => v.toFixed(4)).join(",") +
+    const path = "/v1/map/trips?min=" + q.min.map((v) => v.toFixed(3)).join(",") +
+      "&max=" + q.max.map((v) => v.toFixed(3)).join(",") +
       "&zoom=16&startTime=" + encodeURIComponent(start) + "&endTime=" + encodeURIComponent(end);
     let data;
     try { data = await S.apiGet(path, { timeout: 12000 }); } catch (e) { return; }
@@ -151,7 +172,7 @@
 
   S.stopVehicles = function () {
     ctx = null; segs = []; ++seq;
-    clearInterval(timer); clearInterval(tick); timer = tick = null;
+    clearInterval(timer); clearInterval(tick); clearTimeout(moveT); timer = tick = null;
     markers.forEach((mk) => mk.remove());
     markers.clear();
     chip("");
@@ -162,7 +183,7 @@
     if (!ctx) return;
     fetchSegments();
     timer = setInterval(fetchSegments, REFRESH_MS);
-    tick = setInterval(render, 1000);
+    tick = setInterval(() => { if (!document.hidden) render(); }, 1000);
   }
   S.showVehicles = function (idx) {
     S.stopVehicles();

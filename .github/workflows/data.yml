@@ -1,0 +1,71 @@
+# Daily timetable data build: Transitous TTC GTFS → tools/build_*.py → content-hashed files + manifest.json
+# on the `data` branch (served by Pages under /data/, see pages.yml). Skips publishing when nothing changed.
+name: data
+on:
+  schedule:
+    - cron: "17 2 * * *"   # 02:17 UTC = 06:17 Tbilisi, daily
+  workflow_dispatch:
+    inputs:
+      redeploy:
+        description: "Redeploy Pages even if the data did not change"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: data
+  cancel-in-progress: false
+env:
+  GTFS_URL: https://api.transitous.org/gtfs/ge_tbilisi-transport-company.gtfs.zip
+  UA: TbilisiTransitBuild/1.0 (+https://github.com/erik-balfe/tbilisi-transit)
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.publish.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: data
+          path: _data
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore shape cache (Transitous trip geometry; avoids re-querying MOTIS)
+        uses: actions/cache@v4
+        with:
+          path: .shape-cache
+          key: shapes-${{ github.run_id }}
+          restore-keys: shapes-
+      - name: Download GTFS
+        run: |
+          curl -fsSL --retry 3 --retry-delay 10 -A "$UA" -o gtfs.zip "$GTFS_URL"
+          unzip -tq gtfs.zip
+          ls -l gtfs.zip
+      - name: Build data
+        env:
+          TT_OUT: _build
+          TT_SHAPE_CACHE: .shape-cache
+          TT_THROTTLE: "0.5"
+        run: |
+          python tools/build_stops.py gtfs.zip
+          python tools/build_lines.py gtfs.zip
+      - name: Validate + publish (content-hashed, fails loudly on a bad feed)
+        id: publish
+        run: python tools/publish_data.py gtfs.zip _build _data
+      - name: Commit to data branch
+        if: steps.publish.outputs.changed == 'true'
+        working-directory: _data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "data: $(python3 -c 'import json;m=json.load(open("manifest.json"));print(m["version"], "feed", m["feed_start"], "→", m["feed_end"])')"
+          git push origin HEAD:data
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true' || inputs.redeploy
+    uses: ./.github/workflows/pages.yml

@@ -193,7 +193,12 @@ html[data-mode="search"] .top-ui { display: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .offline-pill { background: #3a3f47; color: #fff; }
-.offline-pill[hidden], .vehicle-chip[hidden] { display: none; }
+.offline-pill[hidden], .vehicle-chip[hidden], .data-pill[hidden] { display: none; }
+.data-pill { padding: 6px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; line-height: 1.2;
+  background: #3a3f47; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.18); max-width: 70vw; pointer-events: auto; }
+.data-pill.warn { background: #b45309; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 6px 0; }
+.check-row input { width: 18px; height: 18px; accent-color: AccentColor; }
 .vehicle-chip { margin-right: auto; }
 .vehicle-chip.is-live { color: var(--live); }
 .vehicle-chip.is-sched, .vehicle-chip.is-none { color: var(--muted); }

@@ -15,12 +15,14 @@ The GTFS feed has no shapes.txt, so shapes come from Transitous (/api/v5/trip, O
 fetched once per direction at build time and cached in tools/.shape-cache/. If a fetch fails the
 shape falls back to straight lines between stops.
 """
-import hashlib, csv, io, json, math, sys, zipfile, collections, datetime, time, urllib.request, urllib.parse
+import hashlib, csv, io, json, math, os, sys, zipfile, collections, datetime, time, urllib.request, urllib.parse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parent.parent
-CACHE = Path(__file__).resolve().parent / ".shape-cache"
+CACHE = Path(os.environ.get("TT_SHAPE_CACHE") or Path(__file__).resolve().parent / ".shape-cache")
+OUT = Path(os.environ.get("TT_OUT") or ROOT / "data")
+THROTTLE = float(os.environ.get("TT_THROTTLE", "0.4"))  # seconds between MOTIS requests per worker (be polite)
 FEED = "ge-tbilisi-transport-company_"
 UA = "TbilisiTransitBuild/1.0 (+https://github.com/erik-balfe/tbilisi-transit)"
 
@@ -163,7 +165,7 @@ def date_for(svc):
     return None
 
 def fetch_shape(tid, start_min, svc):
-    CACHE.mkdir(exist_ok=True)
+    CACHE.mkdir(parents=True, exist_ok=True)
     miss = CACHE / (tid.replace(":", "_").replace("/", "_") + ".404")
     if miss.exists(): return None
     cf = CACHE / (tid.replace(":", "_").replace("/", "_") + ".json")
@@ -175,6 +177,7 @@ def fetch_shape(tid, start_min, svc):
     tt = "%s_%02d:%02d_%s%s" % (d.strftime("%Y%m%d"), start_min // 60, start_min % 60, FEED, tid)
     url = "https://api.transitous.org/api/v5/trip?tripId=" + urllib.parse.quote(tt, safe="")
     for attempt in range(3):
+        time.sleep(THROTTLE)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
             data = json.loads(urllib.request.urlopen(req, timeout=30).read())
@@ -244,7 +247,7 @@ def do(d):
         d["shape"] = fetch_shape(tid, t0, svc)
         if d["shape"] is not None: break
     return d["shape"] is not None
-with ThreadPoolExecutor(3) as ex:
+with ThreadPoolExecutor(2) as ex:
     ok = sum(ex.map(do, jobs))
 for d in jobs:
     if "reverse_of" in d:
@@ -268,7 +271,7 @@ def delta(arr):
     for v in arr: out.append(v - prev); prev = v
     return out
 
-outdir = ROOT / "data" / "lines"; outdir.mkdir(parents=True, exist_ok=True)
+outdir = OUT / "lines"; outdir.mkdir(parents=True, exist_ok=True)
 for f in outdir.glob("*.json"): f.unlink()
 index_lines = []
 stop_lines = collections.defaultdict(set)
@@ -305,8 +308,8 @@ for li, L in enumerate(lines):
 idx = {"v": 1, "built": hsh.hexdigest()[:10], "source": "TTC GTFS via Transitous (tbilisi-gtfs)", "feed": FEED,
        "svc": svc_mask, "lines": index_lines,
        "stopLines": [sorted(stop_lines.get(i, [])) for i in range(len(merged))]}
-(ROOT / "data" / "lines.json").write_text(json.dumps(idx, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-(ROOT / "data" / "stops.json").write_text(json.dumps({"v": 2, "source": "TTC GTFS via Transitous (tbilisi-gtfs)", "stops": merged},
+(OUT / "lines.json").write_text(json.dumps(idx, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+(OUT / "stops.json").write_text(json.dumps({"v": 2, "source": "TTC GTFS via Transitous (tbilisi-gtfs)", "stops": merged},
                                           ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-print("lines.json", (ROOT / "data" / "lines.json").stat().st_size, "bytes; per-line total", total, "bytes;",
-      "stops.json", (ROOT / "data" / "stops.json").stat().st_size, file=sys.stderr)
+print("lines.json", (OUT / "lines.json").stat().st_size, "bytes; per-line total", total, "bytes;",
+      "stops.json", (OUT / "stops.json").stat().st_size, file=sys.stderr)

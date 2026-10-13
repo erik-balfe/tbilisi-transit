@@ -1,0 +1,11 @@
+{
+  "name": "tbilisi-transit",
+  "private": true,
+  "description": "Tbilisi Transit PWA — end-to-end tests",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.48.2"
+  }
+}

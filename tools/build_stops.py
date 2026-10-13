@@ -5,7 +5,7 @@ Usage: python3 tools/build_stops.py path/to/ge_tbilisi-transport-company.gtfs.zi
 Output rows: [name_en, name_ka, lat, lon, "code1 code2", kind]  kind: 0 bus stop, 1 metro, 2 gondola
 Same-name stops within ~250 m (opposite sides of a road) are merged.
 """
-import csv, io, json, math, sys, zipfile, collections
+import csv, io, json, math, os, sys, zipfile, collections
 from pathlib import Path
 
 zpath = sys.argv[1]
@@ -47,7 +47,8 @@ for g in groups:
     lon = sum(p[1] for p in g["pts"]) / len(g["pts"])
     out.append([g["en"], g["ka"], round(lat, 5), round(lon, 5), " ".join(g["codes"]), g["kind"]])
 out.sort(key=lambda r: (-r[5], r[0]))
-dest = Path(__file__).resolve().parent.parent / "data" / "stops.json"
+dest = Path(os.environ.get("TT_OUT") or Path(__file__).resolve().parent.parent / "data") / "stops.json"
+dest.parent.mkdir(parents=True, exist_ok=True)
 dest.write_text(json.dumps({"v": 1, "source": "TTC GTFS via Transitous (tbilisi-gtfs)", "stops": out},
                            ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print(len(out), "stops ->", dest, dest.stat().st_size, "bytes")
