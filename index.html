@@ -115,7 +115,6 @@
       </div>
       <div class="trip-opts">
         <label class="check-row"><input type="checkbox" id="avoid-metro" /> <span id="label-avoid-metro">Avoid metro</span></label>
-        <button type="button" class="chip" id="at-stop-btn" aria-pressed="false">At the stop</button>
       </div>
       <section class="at-stop" id="at-stop" aria-live="polite" hidden></section>
       <div class="status" id="status" aria-live="polite"></div>
@@ -152,6 +151,8 @@
         <span class="sv-ico" id="sv-ico" aria-hidden="true"></span>
         <div class="sv-titles"><h2 class="sv-title" id="sv-title"></h2><div class="sv-sub" id="sv-sub"></div></div>
       </div>
+      <div class="here-only here-switch" id="here-switch" hidden></div>
+      <div class="here-only here-tabs" id="here-tabs" role="tablist" hidden></div>
       <div class="sv-actions">
         <button type="button" class="chip act" id="sv-from"></button>
         <button type="button" class="chip act" id="sv-to"></button>
@@ -188,7 +189,7 @@
   <script src="app-plan.js"></script>
   <script src="app-lines.js"></script>
   <script src="app-offline.js"></script>
-  <script src="app-atstop.js"></script>
+  <script src="app-here.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

@@ -499,6 +499,7 @@
     geo.btn.setAttribute("aria-pressed", st === "follow" || st === "background" ? "true" : "false");
   }
   S.updateLocateLabels = () => setGeoState(geo.state);
+  S.showFix = () => renderFix();
 
   function circlePoly(lon, lat, r) {
     const pts = [];
@@ -598,7 +599,7 @@
       navigator.geolocation.getCurrentPosition((pos) => {
         const c = pos.coords;
         geo.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 0, t: Date.now() };
-        if (geo.state !== "off") renderFix();
+        renderFix();
         if (S.onGeoFix) S.onGeoFix(geo.fix);
         resolve(geo.fix);
       }, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 20000 });

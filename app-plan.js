@@ -637,7 +637,6 @@
     ["search-swap", "trip-swap"].forEach((id) => $(id).setAttribute("aria-label", S.t("swap")));
     $("label-more").textContent = S.t("more");
     $("label-avoid-metro").textContent = S.t("avoidMetro");
-    $("at-stop-btn").textContent = S.t("atStopBtn");
     $("label-paste").textContent = S.t("paste");
     $("label-examples").textContent = S.t("examples");
     $("use-as-from").textContent = S.t("useAsFrom");

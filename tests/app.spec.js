@@ -179,10 +179,9 @@ test("metro is a distinct mode in results; 'avoid metro' replans without it; at-
   await expect(page.locator("#at-stop")).toBeVisible();
   await expect(page.locator("#at-stop .as-row .line-badge").first()).toBeVisible();
   /* avoid metro */
+  await page.evaluate(() => { window.__tt.online = true; }); /* a flaky connectivity probe would make replan serve the saved result without a request */
   await page.check("#avoid-metro");
-  await page.waitForFunction(() => document.querySelector(".itinerary"), null, { timeout: 60_000 });
-  await page.waitForTimeout(1500);
-  expect(plans.some((u) => u.includes("transitModes=BUS"))).toBeTruthy();
+  await expect.poll(() => plans.some((u) => u.includes("transitModes=BUS")), { timeout: 30_000 }).toBeTruthy();
   await expect(page.locator(".route-badge.metro")).toHaveCount(0, { timeout: 30_000 });
   await page.uncheck("#avoid-metro");
 });

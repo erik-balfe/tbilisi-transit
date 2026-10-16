@@ -126,38 +126,42 @@
     if (di < 0) di = ld.dirs.findIndex((d) => String(d.d) === String(dirId));
     return di < 0 ? 0 : di;
   }
-  async function departuresOffline(idx) {
+  async function departuresOffline(idx, only) {
     await S.loadLines();
     const stop = S.stops[idx];
     const ids = new Set(stop.ids);
-    const groups = [];
-    const keys = (S.stopLines[idx] || []).map((li) => S.lines[li]).filter(Boolean);
+    const groups = [], flat = [];
+    const keys = (S.stopLines[idx] || []).map((li) => S.lines[li]).filter((l) => l && (!only || only(l)));
     await Promise.all(keys.map(async (l) => {
       let ld;
       try { ld = await S.loadLine(l.key); } catch (e) { return; }
       ld.dirs.forEach((dir, di) => {
         const j = dir.stops.findIndex((s) => ids.has(s.id));
         if (j < 0 || j === dir.stops.length - 1) return;
-        const ts = nextAt(dir, j, 6).filter((m, k, arr) => m - S.tbNow().min <= 90 && (k === 0 || m - arr[k - 1] > 0.75)).slice(0, 3);
-        if (!ts.length) return;
+        const all = nextAt(dir, j, 10).filter((m, k, arr) => m - S.tbNow().min <= 120 && (k === 0 || m - arr[k - 1] > 0.75));
+        const ts = all.filter((m) => m - S.tbNow().min <= 90).slice(0, 3);
         const term = dir.stops[dir.stops.length - 1];
+        all.forEach((m) => flat.push({ line: l, dirIdx: di, term, ms: minToMs(m), rt: false, tripId: null, boardId: dir.stops[j].id }));
+        if (!ts.length) return;
         groups.push({ line: l, dirIdx: di, term, times: ts.map((m) => ({ ms: minToMs(m), rt: false, tripId: null })) });
       });
     }));
-    return groups;
+    flat.sort((a, b) => a.ms - b.ms);
+    return { groups, flat };
   }
   async function departuresOnline(idx) {
     await S.loadLines();
     const stop = S.stops[idx];
     const ids = new Set(stop.ids);
-    const res = await Promise.all(stop.ids.slice(0, 4).map((id) =>
+    const res = await Promise.all(stop.ids.slice(0, 6).map((id) =>
       S.apiCached("/v5/stoptimes?stopId=" + encodeURIComponent(RT_PREFIX + id) + "&n=30&language=" + S.lang, S.TTL.stoptimes)
         /* a copy older than 5 min is worse than the local timetable */
         .then((r) => (r.stale && Date.now() - r.at > 300e3 ? null : (r.body.stopTimes || []))).catch(() => null)));
     if (res.every((r) => r === null)) throw new Error("stoptimes failed");
     const seen = new Set();
     const groups = new Map();
-    const horizon = Date.now() + 90 * 60000;
+    const flat = [];
+    const horizon = Date.now() + 120 * 60000;
     res.forEach((list) => (list || []).forEach((st) => {
       if (!st || seen.has(st.tripId) || st.cancelled) return;
       const pl = st.place || {};
@@ -180,29 +184,55 @@
         groups.set(k, g);
       }
       g.times.push({ ms: dep, rt: !!st.realTime, tripId: st.tripId, sched: Date.parse(pl.scheduledDeparture || "") || dep });
+      flat.push({ line: g.line, term: g.term, dirId: st.directionId, ms: dep, rt: !!st.realTime, tripId: st.tripId, boardId: String(pl.stopId || "").replace(RT_PREFIX, "") });
     }));
     const out = [...groups.values()];
     out.forEach((g) => {
       g.times.sort((a, b) => a.ms - b.ms);
       /* the feed has duplicate trips (overlapping services) → one per minute */
-      g.times = g.times.filter((t, i, arr) => i === 0 || t.ms - arr[i - 1].ms > 45000 || (t.rt && !arr[i - 1].rt)).slice(0, 3);
+      g.times = g.times.filter((t, i, arr) => (i === 0 || t.ms - arr[i - 1].ms > 45000 || (t.rt && !arr[i - 1].rt)) && t.ms <= Date.now() + 90 * 60000).slice(0, 3);
     });
-    return out;
+    flat.sort((a, b) => a.ms - b.ms);
+    const last = new Map();
+    const flat2 = flat.filter((e) => {
+      const k = (e.line.key || e.line.code) + "|" + e.term.id, p = last.get(k);
+      if (p && e.ms - p.ms <= 45000 && !(e.rt && !p.rt)) return false;
+      last.set(k, e); return true;
+    });
+    return { groups: out.filter((g) => g.times.length), flat: flat2 };
   }
   /** → {groups, offline, live, at} ; cached 25 s */
   S.getDepartures = async function (idx, force) {
     const c = depCache.get(idx);
     if (!force && c && Date.now() - c.at < 25000) return c;
-    let groups, offline = false;
+    let res, offline = false;
     if (S.online) {
-      try { groups = await departuresOnline(idx); } catch (e) { groups = null; }
+      try { res = await departuresOnline(idx); } catch (e) { res = null; }
     }
-    if (!groups) { groups = await departuresOffline(idx); offline = true; }
+    if (!res) { res = await departuresOffline(idx); offline = true; }
+    if (!offline && (S.stopLines[idx] || []).some((li) => S.lines[li] && S.lines[li].type === 1)) {
+      /* the live feed only knows one metro direction (feed quirk): add the missing direction from the timetable */
+      try {
+        const extra = await departuresOffline(idx, (l) => l.type === 1);
+        const have = new Set(res.flat.map((e) => e.line.key + "|" + e.term.id));
+        extra.flat.forEach((e) => { if (!have.has(e.line.key + "|" + e.term.id)) res.flat.push(e); });
+        extra.groups.forEach((g) => { if (!have.has(g.line.key + "|" + g.term.id)) res.groups.push(g); });
+        res.flat.sort((a, b) => a.ms - b.ms);
+      } catch (e) { /* keep live only */ }
+    }
+    const groups = res.groups;
     groups.sort((a, b) => a.times[0].ms - b.times[0].ms);
-    const out = { groups, offline, live: groups.some((g) => g.times.some((t) => t.rt)), at: Date.now() };
+    const out = { groups, flat: res.flat, offline, live: res.flat.some((e) => e.rt), at: Date.now() };
     depCache.set(idx, out);
     return out;
   };
+  /** Local timetable only (instant, no network) → {groups, flat, offline:true} */
+  S.getDeparturesLocal = async function (idx) {
+    const res = await departuresOffline(idx);
+    res.groups.sort((a, b) => a.times[0].ms - b.times[0].ms);
+    return { groups: res.groups, flat: res.flat, offline: true, live: false, at: Date.now() };
+  };
+  S.cachedDepartures = (idx) => depCache.get(idx) || null;
 
   /* ———————————————— recents ———————————————— */
   const readLS = (k, d) => S.ls.get(k, d);
@@ -274,6 +304,11 @@
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3.5" width="12" height="14" rx="3"></rect><path d="M6 12h12M9 17.5V20M15 17.5V20"></path></svg>';
   }
 
+  /* internals shared with app-here.js */
+  S.sched = { nextAt, headway, dirForTerminal, hhmm, startsToday };
+  S.stopName = stopName; S.altName = altName; S.stopIcon = stopIcon;
+  S.stopLabelFns = { selMarker: (s) => selMarker(s), offsetFor: (snap) => offsetFor(snap), timers: (t) => timers.push(t) };
+
   /* ———————————————— navigation stack ———————————————— */
   const nav = { stack: [], base: null, camera: null, ignorePop: 0 };
   S.nav = nav;
@@ -314,6 +349,8 @@
     restoreBase();
   }
   S.navBack = back;
+  S.pushView = push; S.topView = top;
+  S.replaceTopView = function (v) { nav.stack[nav.stack.length - 1] = v; show(v); };
   function teardown() {
     stopTimers();
     S.clearLine();
@@ -509,6 +546,8 @@
     });
   };
   function renderStop(v) {
+    if (v.here && S.renderHere) return S.renderHere(v);
+    document.getElementById("stop-view").classList.remove("here");
     const s = S.stops[v.idx];
     S.setMode("stop");
     S.setSheet("mid");
@@ -893,6 +932,7 @@
     if (!v || (S.mode !== "stop" && S.mode !== "line")) return false;
     if (v.kind === "stop") {
       const s = S.stops[v.idx];
+      if (!s) { peek.textContent = S.t("hereLocating"); action.textContent = ""; return true; }
       peek.innerHTML = '<span class="peek-stop">' + stopIcon(s.kind) + "</span>";
       peek.appendChild(document.createTextNode(stopName(s)));
       action.textContent = S.t("departures");
@@ -938,7 +978,7 @@
         '<span class="nb-wait">' + esc(S.t("noDepartures")) + "</span>";
     }).catch(() => {});
   }
-  nb.addEventListener("click", () => { if (nbStop) S.openStop(nbStop.i); });
+  nb.addEventListener("click", () => { if (nbStop) (S.openHere || S.openStop)(nbStop.i); });
   S.onGeoFix = function () { updateNearby(); };
   S.loadStops().then(() => updateNearby());
 
