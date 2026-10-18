@@ -242,30 +242,34 @@ test("trip results list every direct line, not only the planner's few options", 
 });
 
 
-/* Updates: the running version is shown, a newer one is announced with a Reload button, "Check for updates" answers. */
-test("version is shown; a newer published version shows an update bar; manual check says when current", async ({ page }) => {
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  let remote = null; /* null = real file */
-  await page.route(/app-version\.js\?probe=/, (r) => (remote
-    ? r.fulfill({ status: 200, contentType: "application/javascript", body: 'window.TT_VERSION = "' + remote + '";' })
-    : r.continue()));
-  await page.goto("./");
-  await dataReady(page);
-  const cur = await page.evaluate(() => window.TT_VERSION);
-  expect(cur).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
-  await page.evaluate(() => { window.__tt.setMode("trip"); });
-  await page.locator("#more-tools summary").click();
-  await expect(page.locator("#app-version")).toHaveText("Version " + cur);
-  await page.click("#check-update");
-  await expect(page.locator(".toast")).toContainText("latest version");
-  await expect(page.locator("#update-bar")).toBeHidden();
-  /* a newer version is published */
-  remote = "2999-01-01.1";
-  expect(await page.evaluate(() => window.__tt.checkForUpdate())).toBe("available");
-  await expect(page.locator("#update-bar")).toBeVisible();
-  await expect(page.locator("#update-btn")).toHaveText("Reload");
-  expect(errors).toEqual([]);
+/* The probe request goes around the service worker; WebKit does not route such requests through page.route when a worker controls the page → block the worker here (it is irrelevant to the check). */
+test.describe("update check", () => {
+  test.use({ serviceWorkers: "block" });
+  /* Updates: the running version is shown, a newer one is announced with a Reload button, "Check for updates" answers. */
+  test("version is shown; a newer published version shows an update bar; manual check says when current", async ({ page }) => {
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    let remote = null; /* null = real file */
+    await page.route(/app-version\.js\?probe=/, (r) => (remote
+      ? r.fulfill({ status: 200, contentType: "application/javascript", body: 'window.TT_VERSION = "' + remote + '";' })
+      : r.continue()));
+    await page.goto("./");
+    await dataReady(page);
+    const cur = await page.evaluate(() => window.TT_VERSION);
+    expect(cur).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
+    await page.evaluate(() => { window.__tt.setMode("trip"); });
+    await page.locator("#more-tools summary").click();
+    await expect(page.locator("#app-version")).toHaveText("Version " + cur);
+    await page.click("#check-update");
+    await expect(page.locator(".toast")).toContainText("latest version");
+    await expect(page.locator("#update-bar")).toBeHidden();
+    /* a newer version is published */
+    remote = "2999-01-01.1";
+    expect(await page.evaluate(() => window.__tt.checkForUpdate())).toBe("available");
+    await expect(page.locator("#update-bar")).toBeVisible();
+    await expect(page.locator("#update-btn")).toHaveText("Reload");
+    expect(errors).toEqual([]);
+  });
 });
 
 /* Trips with transfers: map labels, frequency, waiting time, ranking, more than a handful of options */
