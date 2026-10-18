@@ -179,6 +179,7 @@
       map.getSource("routes").setData({ type: "FeatureCollection", features: [] });
       map.getSource("trip-metro").setData({ type: "FeatureCollection", features: [] });
     });
+    if (S.clearTripMarkers) S.clearTripMarkers(); /* DOM markers do not wait for the map style */
   };
 
   /** Draw every option at once (distinct colors); selected one thicker and on top */
@@ -188,6 +189,7 @@
     const sel = selectedIdx == null ? 0 : selectedIdx;
     S.selectedItin = sel;
     S.drawn = { list, sel };
+    if (S.drawTripMarkers) S.drawTripMarkers(list[sel]); /* DOM markers do not wait for the map style */
     whenStyle(() => {
       ensureLayers();
       const tc = themeColors();
@@ -197,15 +199,18 @@
       list.forEach((it, i) => {
         const color = S.itinColor(i);
         const selected = i === sel ? 1 : 0;
+        let tIdx = 0;
         (it.legs || []).forEach((leg) => {
           const coords = S.legCoords(leg);
           if (coords.length < 2) return;
           const isWalk = (leg.mode || "WALK").toUpperCase() === "WALK" ? 1 : 0;
           const metro = S.isMetroMode(leg.mode) ? 1 : 0;
           const ml = metro && S.lineFromRouteId ? S.lineFromRouteId(leg.routeId) : null;
+          const legColor = selected && S.legPalette && !isWalk ? S.legPalette(tIdx) : color; /* selected option: each ride in its own colour */
+          if (!isWalk) tIdx++;
           if (metro && selected) [leg.from, leg.to].forEach((p) => p && stations.push({ type: "Feature", properties: {},
             geometry: { type: "Point", coordinates: [p.lon, p.lat] } }));
-          features.push({ type: "Feature", properties: { color: isWalk ? tc.walk : metro ? (ml ? ml.color : S.METRO_RED) : color, walk: isWalk, metro, selected, itin: i },
+          features.push({ type: "Feature", properties: { color: isWalk ? tc.walk : metro ? (ml ? ml.color : S.METRO_RED) : legColor, walk: isWalk, metro, selected, itin: i },
             geometry: { type: "LineString", coordinates: coords } });
           if (selected) coords.forEach((c) => bounds.extend(c));
         });
@@ -225,6 +230,7 @@
       ensureLayers();
       map.getSource("routes").setData({ type: "FeatureCollection", features: [] });
       map.getSource("trip-metro").setData({ type: "FeatureCollection", features: [] });
+      if (S.clearTripMarkers) S.clearTripMarkers();
     });
   };
   S.redrawRoutes = function () {

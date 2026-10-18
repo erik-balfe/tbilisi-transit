@@ -54,7 +54,16 @@
     if (!legs.length) return null;
     /* pad ~2.5 km upstream so approaching vehicles are visible */
     const pad = 0.025;
-    return { legs, color, min: [minLat - pad, minLon - pad * 1.3], max: [maxLat + pad, maxLon + pad * 1.3] };
+    /* each ride of the option in its own colour (same as the route on the map and the badges in the card) */
+    const rc = new Map();
+    let ti = 0;
+    (it.legs || []).forEach((l) => {
+      if ((l.mode || "WALK").toUpperCase() === "WALK") return;
+      const c = S.legPalette ? S.legPalette(ti) : color;
+      ((it.alts && it.alts[ti]) || [S.legName ? S.legName(l) : l.routeShortName]).forEach((n) => rc.set(n, c));
+      ti++;
+    });
+    return { legs, color, routeColor: rc, min: [minLat - pad, minLon - pad * 1.3], max: [maxLat + pad, maxLon + pad * 1.3] };
   }
 
   function prep(coords) {
@@ -159,7 +168,7 @@
       }
       const el = mk.getElement();
       const isMetro = s.mode === "SUBWAY" || s.mode === "METRO";
-      const vc = isMetro ? (S.METRO_RED || "#e5484d") : ctx.color;
+      const vc = isMetro ? (S.METRO_RED || "#e5484d") : (ctx.routeColor && ctx.routeColor.get(s.route)) || ctx.color;
       el.style.setProperty("--veh", vc);
       el.style.setProperty("--veh-text", S.textOn(vc));
       el.classList.toggle("rt", s.rt);

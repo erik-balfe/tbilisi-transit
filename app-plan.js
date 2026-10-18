@@ -398,8 +398,18 @@
       rep._allLegs = [].concat.apply([], ms.map((m) => (m.legs || []).filter(isTransit)));
       rep.members = ms.length;
       rep.direct = nT <= 1;
+      /* pooled frequency per ride: any of the lines in the group (1 / sum of 1 / gap), only when every gap is known */
+      rep.freqs = [];
+      for (let i = 0; i < nT; i++) {
+        const gaps = new Map();
+        ms.forEach((m) => { const l = (m.legs || []).filter(isTransit)[i]; if (l) gaps.set(S.legName(l), l._every || null); });
+        const v = [...gaps.values()];
+        rep.freqs.push(v.length && v.every(Boolean) ? Math.max(1, Math.round(1 / v.reduce((a, g) => a + 1 / g, 0))) : null);
+      }
+      rep._score = Math.min.apply(null, ms.map((m) => (typeof m._score === "number" ? m._score : Infinity)));
       return rep;
-    }).sort((a, b) => (a.direct === b.direct ? 0 : a.direct ? -1 : 1) || Date.parse(a.endTime) - Date.parse(b.endTime));
+    }).sort((a, b) => (a.direct === b.direct ? 0 : a.direct ? -1 : 1) ||
+      (isFinite(a._score) && isFinite(b._score) ? a._score - b._score : 0) || Date.parse(a.endTime) - Date.parse(b.endTime));
   };
   function routeBadgesHtml(it, color) {
     const tx = S.textOn(color);
@@ -415,12 +425,13 @@
         return mins >= 2 ? '<span class="route-badge walk"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="1.8"></circle><path d="M10 21l2-6 3 3v3M9 12l2-4 3 1 2 3M11 8l-2 5"></path></svg>' + mins + "</span>" : "";
       }
       const names = (it.alts && it.alts[t]) || [S.legName(leg)];
+      const pc = S.legPalette(t);
       t++;
       if (S.isMetroMode(mode)) {
         const mc = S.legColor(leg, color);
         return '<span class="route-badge metro" style="background:' + mc + ";color:" + S.textOn(mc) + '">' + METRO_SVG + esc(names.join(" / ")) + "</span>";
       }
-      return '<span class="route-badge" style="background:' + color + ";color:" + tx + '">' + esc(names.join(" / ")) + "</span>";
+      return '<span class="route-badge" style="background:' + pc + ";color:" + S.textOn(pc) + '">' + esc(names.join(" / ")) + "</span>";
     }).filter(Boolean).join('<span class="badge-sep">›</span>');
   }
   function renderLegs(it, color) {
@@ -435,7 +446,7 @@
       const route = isWalk ? "" : S.legName(leg);
       const alts = isWalk ? [] : ((it.alts && it.alts[t++]) || []).filter((n) => n !== route);
       const prev = legs[li - 1], next = legs[li + 1];
-      const lc = isWalk ? null : S.legColor(leg, color);
+      const lc = isWalk ? null : S.legColor(leg, S.legPalette(t - 1));
       const fromName = leg.from && leg.from.name && leg.from.name !== "START" ? leg.from.name : S.displayName(S.fromPlace);
       const toName = leg.to && leg.to.name && leg.to.name !== "END" ? leg.to.name : S.displayName(S.toPlace);
       const row = document.createElement("div");
@@ -453,9 +464,11 @@
           (isMetro ? ' <span class="headsign">· ' + esc(S.tf("metroStops", nStops)) + "</span>" : "") +
           (alts.length ? ' <span class="alts">' + esc(S.tf("orAlso", alts.join(", "))) + "</span>" : "");
       const rt = !isWalk ? (leg.realTime ? '<span class="badge live">' + S.t("live") + "</span>" : '<span class="badge sched">' + S.t("scheduled") + "</span>") : "";
+      const every = !isWalk && leg._every ? " · " + S.tf("directEvery", leg._every) : "";
+      const xfer = !isWalk && typeof leg._wait === "number" ? '<div class="leg-xfer">' + esc(S.tf("transferWait", leg._wait)) + "</div>" : "";
       row.innerHTML = '<div class="leg-time">' + esc(S.formatTime(leg.startTime)) + "</div>" +
-        '<div class="leg-line"></div><div class="leg-detail"><div class="leg-head">' + head + " " + rt + "</div>" +
-        '<div class="leg-sub">' + esc(fromName) + (isWalk ? "" : " → " + esc(toName)) + "</div></div>";
+        '<div class="leg-line"></div><div class="leg-detail">' + xfer + '<div class="leg-head">' + head + " " + rt + "</div>" +
+        '<div class="leg-sub">' + esc(fromName) + (isWalk ? "" : " → " + esc(toName)) + esc(every) + "</div></div>";
       const rn = row.querySelector(".route-num[data-route]");
       if (rn && rn.dataset.route && S.openLineFromLeg) {
         rn.title = S.t("showLine");
@@ -500,6 +513,7 @@
           (live ? '<span class="badge live">' + S.t("live") + "</span>" : "") + "</span>" +
           '<span class="itin-badges"></span>' +
           '<span class="itin-meta"></span>' +
+          '<span class="itin-freq"></span>' +
         "</span>" +
         '<span class="itin-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"></path></svg></span>' +
       "</button>" +
@@ -507,14 +521,22 @@
     el.querySelector(".itin-dur").textContent = S.formatDuration(it.duration);
     el.querySelector(".itin-times").textContent = S.formatTime(it.startTime) + " – " + S.formatTime(it.endTime);
     const walkOnly = (it.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK");
-    el.querySelector(".itin-meta").textContent = walkOnly ? S.t("walkOnly") : S.transferLabel(it.transfers || 0);
+    const waits = (it.legs || []).filter((l) => typeof l._wait === "number" && !walkOnly).map((l) => l._wait);
+    const waitSum = waits.reduce((a, b) => a + b, 0);
+    el.querySelector(".itin-meta").textContent = walkOnly ? S.t("walkOnly") : S.transferLabel(it.transfers || 0) + (waits.length && waitSum > 0 ? " · " + S.tf("transferWaitShort", waitSum) : "");
+    const fr = (it.freqs || []).map((f, i) => ((it.alts && it.alts[i]) || []).join(" / ") + (f ? " · " + S.tf("directEvery", f) : ""));
+    el.querySelector(".itin-freq").textContent = !walkOnly && (it.freqs || []).some(Boolean) ? fr.join("  ›  ") : "";
     el.querySelector(".itin-badges").innerHTML = routeBadgesHtml(it, color);
     el.querySelector(".itin-detail").appendChild(renderLegs(it, color));
     el.querySelector(".itin-summary").addEventListener("click", () => selectItin(index, true));
     return el;
   }
+  const LIM = 8; /* options shown before "Show more options" */
   function showResults(list, note) {
+    S.rawResults = list;
     list = S.groupItineraries(list);
+    const total = list.length;
+    if (!S.showAllOptions) list = list.slice(0, LIM);
     S.lastItineraries = list;
     S.selectedItin = 0;
     S.resultsEl.innerHTML = "";
@@ -539,6 +561,13 @@
       }
       S.resultsEl.appendChild(renderItinerary(it, i));
     });
+    if (total > list.length) {
+      const more = document.createElement("button");
+      more.type = "button"; more.className = "here-more opts-more";
+      more.textContent = S.tf("moreOptions", total - list.length);
+      more.addEventListener("click", () => { S.showAllOptions = true; showResults(S.rawResults, note); });
+      S.resultsEl.appendChild(more);
+    }
     S.drawAllItineraries(list, 0, { fit: true });
     if (S.showVehicles) S.showVehicles(0);
     S.updatePeek();
@@ -549,6 +578,7 @@
   S.plan = async function () {
     if (!S.fromPlace || !S.toPlace) { S.toast(S.t("pickBoth"), true); return; }
     const my = ++planSeq;
+    S.showAllOptions = false;
     S.setMode("trip");
     S.setSheet("mid");
     S.updateTripPoints();
@@ -563,7 +593,8 @@
       const saved = S.findSavedTrip(from, to);
       if (saved) {
         const t = new Date(saved.at).toLocaleString(S.lang === "ka" ? "ka-GE" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
-        showResults(saved.itineraries || [], S.tf(S.online ? "savedResults" : "offlineSaved", t));
+        const sl = saved.itineraries || [];
+        (S.enrichItineraries ? S.enrichItineraries(sl) : Promise.resolve()).catch(() => {}).then(() => { if (my === planSeq) showResults(sl, S.tf(S.online ? "savedResults" : "offlineSaved", t)); });
         return true;
       }
       return false;
@@ -573,12 +604,12 @@
     try {
       const path = "/v5/plan?fromPlace=" + encodeURIComponent(from.lat + "," + from.lon) +
         "&toPlace=" + encodeURIComponent(to.lat + "," + to.lon) +
-        "&arriveBy=false&language=" + S.lang + "&numItineraries=8" +
+        "&arriveBy=false&language=" + S.lang + "&numItineraries=30" +
         (S.ls.get("tt-avoid-metro", false) ? "&transitModes=BUS,AERIAL_LIFT" : "");
       const r = await S.apiCached(path, S.TTL.plan);
       const data = r.body;
       if (my !== planSeq) return;
-      const list = (data.itineraries || []).slice(0, 8);
+      const list = (data.itineraries || []).slice(0, 30);
       /* MOTIS returns short / walk-only trips in `direct`, not `itineraries` */
       const walk = (data.direct || []).find((d) => (d.legs || []).every((l) => (l.mode || "WALK").toUpperCase() === "WALK"));
       if (walk) {
@@ -587,6 +618,8 @@
         if ((walk.duration || 0) <= best) list.unshift(walk); else list.push(walk);
       }
       if (list.length && !r.cached) S.saveTrip(from, to, list);
+      if (S.enrichItineraries) await S.enrichItineraries(list);
+      if (my !== planSeq) return;
       const t = new Date(r.at).toLocaleString(S.lang === "ka" ? "ka-GE" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
       showResults(list, r.stale ? S.tf(S.online ? "savedResults" : "offlineSaved", t) : "");
     } catch (err) {

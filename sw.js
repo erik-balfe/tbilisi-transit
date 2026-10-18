@@ -21,6 +21,7 @@ const SHELL = [
   "./app-offline.js",
   "./app-here.js",
   "./app-direct.js",
+  "./app-trip.js",
   "./app-update.js",
   "./app-version.js",
   "./manifest.webmanifest",
