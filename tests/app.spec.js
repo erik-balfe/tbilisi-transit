@@ -273,80 +273,84 @@ test.describe("update check", () => {
 });
 
 /* Trips with transfers: map labels, frequency, waiting time, ranking, more than a handful of options */
-test("transfer trip: Board / Transfer / Alight labels in leg colours, every N min, wait, many options, frequent lines rank higher", async ({ page }) => {
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.clock.setFixedTime(new Date("2026-10-19T12:00:00+04:00"));
-  await page.goto("./");
-  await dataReady(page);
-  /* two real lines from the timetable: ride 1 on 462, ride 2 on 329 (stops taken from the line files) */
-  const mock = await page.evaluate(async () => {
-    const S = window.__tt;
-    const pick = async (code, i, j) => {
-      const l = S.lines.find((x) => x.code === code);
-      const ld = await S.loadLine(l.key);
-      const d = ld.dirs[0];
-      return { l, a: d.stops[i], b: d.stops[j], stops: d.stops };
-    };
-    const R1 = await pick("462", 1, 8), R2 = await pick("329", 2, 9);
-    const P = (s) => ({ name: s.en, lat: s.lat, lon: s.lon, stopId: "ge-tbilisi-transport-company_1:" + s.id });
-    const t0 = Date.now();
-    const mk = (off, wait, k) => {
-      /* different boarding / alighting stops → different paths (not merged into one option) */
-      const r1 = Object.assign({}, R1, { a: R1.stops[k % 6] }), r2 = Object.assign({}, R2, { b: R2.stops[9 + Math.floor(k / 6) * 2] });
-      const s1 = t0 + off * 60000, e1 = s1 + 15 * 60000, s2 = e1 + wait * 60000, e2 = s2 + 20 * 60000;
-      const leg = (r, s, e, to2) => ({ mode: "BUS", routeShortName: r.l.code, routeId: "ge-tbilisi-transport-company_1:" + r.l.key, headsign: "x", startTime: new Date(s).toISOString(), endTime: new Date(e).toISOString(), duration: (e - s) / 1000, realTime: false, from: P(r.a), to: P(r.b), intermediateStops: [] });
-      return { duration: (e2 - s1) / 1000, startTime: new Date(s1).toISOString(), endTime: new Date(e2).toISOString(), transfers: 1, legs: [leg(r1, s1, e1), leg(r2, s2, e2)] };
-    };
-    const itins = [];
-    for (let k = 0; k < 12; k++) itins.push(mk(k * 7, 3 + (k % 4), k));
-    return { itins, from: { lat: R1.stops[0].lat, lon: R1.stops[0].lon, name: R1.stops[0].en }, to: { lat: R2.stops[9].lat, lon: R2.stops[9].lon, name: R2.stops[9].en } };
+/* Mocked network answers: no service worker (WebKit does not route worker-handled requests through page.route). */
+test.describe("transfer trip", () => {
+  test.use({ serviceWorkers: "block" });
+  test("transfer trip: Board / Transfer / Alight labels in leg colours, every N min, wait, many options, frequent lines rank higher", async ({ page }) => {
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.clock.setFixedTime(new Date("2026-10-19T12:00:00+04:00"));
+    await page.goto("./");
+    await dataReady(page);
+    /* two real lines from the timetable: ride 1 on 462, ride 2 on 329 (stops taken from the line files) */
+    const mock = await page.evaluate(async () => {
+      const S = window.__tt;
+      const pick = async (code, i, j) => {
+        const l = S.lines.find((x) => x.code === code);
+        const ld = await S.loadLine(l.key);
+        const d = ld.dirs[0];
+        return { l, a: d.stops[i], b: d.stops[j], stops: d.stops };
+      };
+      const R1 = await pick("462", 1, 8), R2 = await pick("329", 2, 9);
+      const P = (s) => ({ name: s.en, lat: s.lat, lon: s.lon, stopId: "ge-tbilisi-transport-company_1:" + s.id });
+      const t0 = Date.now();
+      const mk = (off, wait, k) => {
+        /* different boarding / alighting stops → different paths (not merged into one option) */
+        const r1 = Object.assign({}, R1, { a: R1.stops[k % 6] }), r2 = Object.assign({}, R2, { b: R2.stops[9 + Math.floor(k / 6) * 2] });
+        const s1 = t0 + off * 60000, e1 = s1 + 15 * 60000, s2 = e1 + wait * 60000, e2 = s2 + 20 * 60000;
+        const leg = (r, s, e, to2) => ({ mode: "BUS", routeShortName: r.l.code, routeId: "ge-tbilisi-transport-company_1:" + r.l.key, headsign: "x", startTime: new Date(s).toISOString(), endTime: new Date(e).toISOString(), duration: (e - s) / 1000, realTime: false, from: P(r.a), to: P(r.b), intermediateStops: [] });
+        return { duration: (e2 - s1) / 1000, startTime: new Date(s1).toISOString(), endTime: new Date(e2).toISOString(), transfers: 1, legs: [leg(r1, s1, e1), leg(r2, s2, e2)] };
+      };
+      const itins = [];
+      for (let k = 0; k < 12; k++) itins.push(mk(k * 7, 3 + (k % 4), k));
+      return { itins, from: { lat: R1.stops[0].lat, lon: R1.stops[0].lon, name: R1.stops[0].en }, to: { lat: R2.stops[9].lat, lon: R2.stops[9].lon, name: R2.stops[9].en } };
+    });
+    const plans = [];
+    await page.route("**/v5/plan**", (r) => { plans.push(r.request().url()); r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ itineraries: mock.itins, direct: [] }) }); });
+    await page.route("**/v5/stoptimes**", (r) => r.abort());
+    await page.evaluate((m) => {
+      const S = window.__tt;
+      S.setPlace("from", { name: m.from.name, lat: m.from.lat, lon: m.from.lon, type: "STOP" });
+      S.setPlace("to", { name: m.to.name, lat: m.to.lat, lon: m.to.lon, type: "STOP" });
+      S.plan();
+    }, mock);
+    await expect(page.locator(".itinerary").first()).toBeVisible({ timeout: 30_000 });
+    /* asks for many options, not 3–4 */
+    expect(plans.length).toBeGreaterThan(0);
+    expect(Number(new URL(plans[0]).searchParams.get("numItineraries"))).toBeGreaterThanOrEqual(24);
+    /* card: chain, frequency, transfer wait */
+    const first = page.locator(".itinerary").first();
+    await expect(first.locator(".itin-badges .route-badge")).toHaveCount(2);
+    await expect(first.locator(".itin-freq")).toContainText(/462 · every \d+ min/);
+    await expect(first.locator(".itin-meta")).toContainText(/1 transfer/);
+    await expect(first.locator(".leg-xfer")).toContainText(/Transfer · wait \d+ min/);
+    const bg = await first.locator(".itin-badges .route-badge").evaluateAll((els) => els.map((e) => e.style.background));
+    expect(bg[0]).not.toBe(bg[1]);                     /* each ride has its own colour */
+    /* map: labels for board / transfer / alight, line numbers in the leg colours */
+    const steps = page.locator(".tt-step");
+    await expect(steps.first()).toBeVisible();
+    const kinds = await steps.evaluateAll((els) => els.map((e) => e.querySelector(".st-kind").textContent.toLowerCase()));
+    expect(kinds).toContain("board");
+    expect(kinds).toContain("transfer");
+    expect(kinds).toContain("alight");
+    const badgeCols = await steps.evaluateAll((els) => [...new Set(els.flatMap((e) => [...e.querySelectorAll(".st-badge")].map((b) => b.style.background)))]);
+    expect(badgeCols.length).toBeGreaterThanOrEqual(2);
+    /* more options on demand */
+    expect(await page.locator(".itinerary").count()).toBeLessThanOrEqual(8);
+    const more = page.locator(".opts-more");
+    await expect(more).toBeVisible();
+    await more.click();
+    expect(await page.locator(".itinerary").count()).toBeGreaterThan(8);
+    /* ranking: a rare line with the same arrival is worse than a frequent one */
+    const scores = await page.evaluate(async () => {
+      const S = window.__tt;
+      const base = Date.now() + 30 * 60000;
+      const mk = (f) => ({ endTime: new Date(base).toISOString(), legs: [{ mode: "BUS", routeId: "x", startTime: new Date(base - 600000).toISOString(), endTime: new Date(base).toISOString(), _freq: f }] });
+      const rare = mk({ n: 1, every: null }), often = mk({ n: 8, every: 6 });
+      await S.enrichItineraries([rare, often]);
+      return { rare: rare._score, often: often._score };
+    });
+    expect(scores.rare).toBeGreaterThan(scores.often);
+    expect(errors).toEqual([]);
   });
-  const plans = [];
-  await page.route("**/v5/plan**", (r) => { plans.push(r.request().url()); r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ itineraries: mock.itins, direct: [] }) }); });
-  await page.route("**/v5/stoptimes**", (r) => r.abort());
-  await page.evaluate((m) => {
-    const S = window.__tt;
-    S.setPlace("from", { name: m.from.name, lat: m.from.lat, lon: m.from.lon, type: "STOP" });
-    S.setPlace("to", { name: m.to.name, lat: m.to.lat, lon: m.to.lon, type: "STOP" });
-    S.plan();
-  }, mock);
-  await expect(page.locator(".itinerary").first()).toBeVisible({ timeout: 30_000 });
-  /* asks for many options, not 3–4 */
-  expect(plans.length).toBeGreaterThan(0);
-  expect(Number(new URL(plans[0]).searchParams.get("numItineraries"))).toBeGreaterThanOrEqual(24);
-  /* card: chain, frequency, transfer wait */
-  const first = page.locator(".itinerary").first();
-  await expect(first.locator(".itin-badges .route-badge")).toHaveCount(2);
-  await expect(first.locator(".itin-freq")).toContainText(/462 · every \d+ min/);
-  await expect(first.locator(".itin-meta")).toContainText(/1 transfer/);
-  await expect(first.locator(".leg-xfer")).toContainText(/Transfer · wait \d+ min/);
-  const bg = await first.locator(".itin-badges .route-badge").evaluateAll((els) => els.map((e) => e.style.background));
-  expect(bg[0]).not.toBe(bg[1]);                     /* each ride has its own colour */
-  /* map: labels for board / transfer / alight, line numbers in the leg colours */
-  const steps = page.locator(".tt-step");
-  await expect(steps.first()).toBeVisible();
-  const kinds = await steps.evaluateAll((els) => els.map((e) => e.querySelector(".st-kind").textContent.toLowerCase()));
-  expect(kinds).toContain("board");
-  expect(kinds).toContain("transfer");
-  expect(kinds).toContain("alight");
-  const badgeCols = await steps.evaluateAll((els) => [...new Set(els.flatMap((e) => [...e.querySelectorAll(".st-badge")].map((b) => b.style.background)))]);
-  expect(badgeCols.length).toBeGreaterThanOrEqual(2);
-  /* more options on demand */
-  expect(await page.locator(".itinerary").count()).toBeLessThanOrEqual(8);
-  const more = page.locator(".opts-more");
-  await expect(more).toBeVisible();
-  await more.click();
-  expect(await page.locator(".itinerary").count()).toBeGreaterThan(8);
-  /* ranking: a rare line with the same arrival is worse than a frequent one */
-  const scores = await page.evaluate(async () => {
-    const S = window.__tt;
-    const base = Date.now() + 30 * 60000;
-    const mk = (f) => ({ endTime: new Date(base).toISOString(), legs: [{ mode: "BUS", routeId: "x", startTime: new Date(base - 600000).toISOString(), endTime: new Date(base).toISOString(), _freq: f }] });
-    const rare = mk({ n: 1, every: null }), often = mk({ n: 8, every: 6 });
-    await S.enrichItineraries([rare, often]);
-    return { rare: rare._score, often: often._score };
-  });
-  expect(scores.rare).toBeGreaterThan(scores.often);
-  expect(errors).toEqual([]);
 });
