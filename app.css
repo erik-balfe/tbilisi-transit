@@ -707,3 +707,12 @@ footer a { color: var(--muted); }
 .here-msg-act { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .as-head { appearance: none; width: 100%; border: 0; background: transparent; color: var(--text); text-align: left; font: inherit; font-weight: 800; font-size: 16px; padding: 0; margin-bottom: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .as-more { font-size: 12px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+
+/* —— all direct lines (trip results) —— */
+.direct-lines { margin: 0 0 6px; }
+.direct-hint { font-size: 12px; color: var(--muted); margin: 0 2px 4px; }
+.direct-chips { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 2px 2px 0; }
+.direct-chip { appearance: none; border: 0; background: transparent; padding: 2px 0; display: flex; align-items: center; gap: 6px; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.direct-chip .as-t.rt { color: var(--live); }
+.direct-toggle { padding: 0.45rem; text-align: left; }
+.direct-row .dep-via { -webkit-line-clamp: 2; }

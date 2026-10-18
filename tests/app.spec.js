@@ -185,3 +185,45 @@ test("metro is a distinct mode in results; 'avoid metro' replans without it; at-
   await expect(page.locator(".route-badge.metro")).toHaveCount(0, { timeout: 30_000 });
   await page.uncheck("#avoid-metro");
 });
+
+/* Regression: the planner only returns its few best options (here 550 and 371), but every line that runs from
+   M/S Isani to Dimitri Gulia Square without a transfer (e.g. 310) must be listed. */
+test("trip results list every direct line, not only the planner's few options", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const now = Date.now();
+  const leg = (code, from, to, off) => ({
+    mode: "BUS", routeShortName: code, routeId: "ge-tbilisi-transport-company_1:mock-" + code, headsign: "Mock",
+    startTime: new Date(now + off * 60000).toISOString(), endTime: new Date(now + (off + 9) * 60000).toISOString(), duration: 540, realTime: false,
+    from: { name: "M/S Isani", lat: 41.685844, lon: 44.84035, stopId: "ge-tbilisi-transport-company_1:1489" },
+    to: { name: "Dimitri Gulia Square", lat: 41.675648, lon: 44.828568, stopId: "ge-tbilisi-transport-company_1:1946" },
+    intermediateStops: [],
+  });
+  const itin = (code, off) => ({ duration: 540, startTime: new Date(now + off * 60000).toISOString(), endTime: new Date(now + (off + 9) * 60000).toISOString(), transfers: 0, legs: [leg(code, 0, 0, off)] });
+  await page.route("**/v5/plan**", (r) => r.fulfill({
+    status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({ itineraries: [itin("550", 2), itin("371", 4)], direct: [] }),
+  }));
+  await page.route("**/v5/stoptimes**", (r) => r.abort());
+  await page.goto("./?from=41.68663,44.84084&to=41.6756,44.8286");
+  await dataReady(page);
+  const sec = page.locator("#direct-lines");
+  await expect(sec).toBeVisible({ timeout: 60_000 });
+  await expect(sec.locator(".direct-chip").first()).toBeVisible({ timeout: 60_000 });
+  /* 310 runs Isani → Gulia Square → Ortachala → Freedom Square; it is not among the planner's options */
+  await expect(sec.locator('.direct-chip[data-line="310"]')).toHaveCount(1, { timeout: 30_000 });
+  const codes = await sec.locator(".direct-chip").evaluateAll((els) => els.map((e) => e.dataset.line));
+  expect(new Set(codes).size).toBe(codes.length);   /* one chip per line */
+  expect(codes).toContain("550");
+  expect(codes.length).toBeGreaterThan(2);
+  /* details: terminal, ride time, next departures */
+  await sec.locator(".direct-toggle").click();
+  const row = sec.locator('.direct-row[data-line="310"]');
+  await expect(row).toBeVisible();
+  await expect(row.locator(".dep-head")).toContainText("→");
+  await expect(row.locator(".dep-via")).toContainText("min ride");
+  /* tapping a chip opens that line from the boarding stop */
+  await sec.locator('.direct-chip[data-line="310"]').click();
+  await expect(page.locator("#line-view")).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -524,6 +524,7 @@
       S.resultsEl.innerHTML = '<div class="empty">' + esc(S.t("noResults")) + "</div>";
       S.clearRoute();
       S.updatePeek();
+      if (S.paintDirectLines) S.paintDirectLines();
       return;
     }
     let section = null;
@@ -542,6 +543,7 @@
     if (S.showVehicles) S.showVehicles(0);
     S.updatePeek();
     if (S.updateAtStop) S.updateAtStop();
+    if (S.paintDirectLines) S.paintDirectLines();
   }
   let planSeq = 0;
   S.plan = async function () {
@@ -594,6 +596,7 @@
         S.resultsEl.innerHTML = "";
         S.statusEl.textContent = S.online ? S.t("error") : S.t("offline");
         S.statusEl.classList.add("error");
+        if (S.paintDirectLines) S.paintDirectLines();
       }
     }
   };
@@ -662,6 +665,7 @@
         n.classList.toggle("active", i === sel);
         n.classList.toggle("expanded", i === sel);
       });
+      if (S.paintDirectLines) S.paintDirectLines();
     }
   };
 
