@@ -69,6 +69,27 @@
     return live.concat(sched).sort((a, b) => a.ms - b.ms).filter((t, i, arr) => i === 0 || t.ms - arr[i - 1].ms > 45000).slice(0, 3);
   }
 
+  const WINDOW_MIN = 90;
+  /** scheduled departures at the boarding stop in the next 90 min → {n, every(min|null), mins:[minute-of-day]} */
+  function frequency(o) {
+    const now = S.tbNow().min;
+    const mins = S.sched.nextAt(o.dir, o.j, 120).filter((m) => m - now <= WINDOW_MIN)
+      .filter((m, i, arr) => i === 0 || m - arr[i - 1] > 0.75);
+    const n = mins.length;
+    const every = n >= 2 ? Math.max(1, Math.round((mins[n - 1] - mins[0]) / (n - 1))) : null;
+    return { n, every, mins };
+  }
+  const nextLabel = (t) => {
+    const m = Math.round((t.ms - Date.now()) / 60000);
+    return m > WINDOW_MIN ? new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tbilisi" }).format(new Date(t.ms)) : S.tf("inMin", Math.max(0, m));
+  };
+  const everyLabel = (f) => (f.every ? S.tf("directEvery", f.every) : f.n === 1 ? S.t("directFew") : S.t("directRare"));
+  /** any of the lines: pooled departures → average gap in minutes, or null */
+  function combinedEvery(entries) {
+    const all = [].concat.apply([], entries.map((e) => e.f.mins)).sort((a, b) => a - b);
+    return all.length >= 2 ? Math.max(1, Math.round((all[all.length - 1] - all[0]) / (all.length - 1))) : null;
+  }
+
   function rowEl(e) {
     const o = e.o, t = e.times;
     const b = document.createElement("button");
@@ -78,7 +99,7 @@
     const more = t.length > 1 ? " · " + S.tf("directThen", t.slice(1).map((x) => Math.max(0, Math.round((x.ms - Date.now()) / 60000))).join(", ")) : "";
     b.innerHTML = S.lineBadge(o.line, "lg") +
       '<span class="dep-main"><span class="dep-head">' + esc(S.tf("toTerminal", S.stopName(o.term))) + "</span>" +
-      '<span class="dep-via"><i>' + esc(S.tf("directRide", o.mins)) + "</i>" + esc(walk) + esc(more) + "</span></span>" +
+      '<span class="dep-via"><i>' + esc(S.tf("directRide", o.mins)) + "</i> · " + esc(everyLabel(e.f)) + esc(walk) + esc(more) + "</span></span>" +
       (t.length
         ? '<span class="dep-first' + (t[0].rt ? " rt" : "") + (t[0].ms - Date.now() < 90000 ? " soon" : "") + '">' +
           (t[0].rt ? '<i class="rt-dot" aria-label="' + esc(S.t("live")) + '"></i>' : "") +
@@ -93,17 +114,19 @@
   function openOpt(o, t) {
     S.openLine(o.line.key, { boardStop: o.bi, termId: o.term.id, dirIdx: o.di, depMs: t.length ? t[0].ms : undefined, depRt: t.length ? t[0].rt : undefined });
   }
-  /** compact chip: line badge + minutes to the next departure (all lines visible at once) */
+  /** compact chip: badge, minutes to the next departure, how often it runs */
   function chipEl(e) {
     const o = e.o, t = e.times;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "direct-chip";
     b.dataset.line = o.line.code;
-    const m = t.length ? S.tf("inMin", Math.max(0, Math.round((t[0].ms - Date.now()) / 60000))) : "—";
-    b.innerHTML = S.lineBadge(o.line, "big") + '<span class="as-times"><span class="as-t' + (t.length && t[0].rt ? " rt" : "") + '">' +
-      (t.length && t[0].rt ? '<i class="rt-dot"></i>' : "") + esc(m) + "</span></span>";
-    b.setAttribute("aria-label", o.line.code + " → " + S.stopName(o.term));
+    b.dataset.n = String(e.f.n);
+    if (e.f.every) b.dataset.every = String(e.f.every);
+    b.innerHTML = S.lineBadge(o.line, "lg") +
+      '<span class="dc-next' + (t.length && t[0].rt ? " rt" : "") + '">' + (t.length && t[0].rt ? '<i class="rt-dot"></i>' : "") + esc(t.length ? nextLabel(t[0]) : "—") + "</span>" +
+      '<span class="dc-every">' + esc(everyLabel(e.f)) + "</span>";
+    b.setAttribute("aria-label", o.line.code + " → " + S.stopName(o.term) + ", " + everyLabel(e.f));
     b.addEventListener("click", () => openOpt(o, t));
     return b;
   }
@@ -122,7 +145,7 @@
   function paint(entries) {
     const el = sectionEl();
     if (!entries.length) { el.remove(); return; }
-    el.innerHTML = '<h3 class="itin-section">' + esc(S.tf("directAll", entries.length)) + '</h3><p class="direct-hint">' + esc(S.t("directHint")) + '</p><div class="direct-chips"></div>';
+    el.innerHTML = '<h3 class="itin-section">' + esc(S.tf("directAll", entries.length)) + '</h3><p class="direct-hint">' + esc(S.tf("directHint", { every: combinedEvery(entries) })) + '</p><div class="direct-chips"></div>';
     const chips = el.querySelector(".direct-chips");
     entries.forEach((e) => chips.appendChild(chipEl(e)));
     const tg = document.createElement("button");
@@ -137,7 +160,8 @@
       el.appendChild(list);
     }
   }
-  const order = (a, b) => (a.times.length ? a.times[0].ms : 1e15) - (b.times.length ? b.times[0].ms : 1e15) || a.o.walkA - b.o.walkA;
+  /* most departures in the next 90 min first (most frequent line on top), then the soonest */
+  const order = (a, b) => b.f.n - a.f.n || (a.times.length ? a.times[0].ms : 1e15) - (b.times.length ? b.times[0].ms : 1e15) || a.o.walkA - b.o.walkA;
 
   /** Show / refresh the "all direct lines" section on top of the trip results */
   S.paintDirectLines = async function () {
@@ -153,7 +177,7 @@
     let found;
     try { found = await S.findDirect(from, to); } catch (e) { console.warn("direct", e); if (my === seq) { const el = $("direct-lines"); if (el) el.remove(); } return; }
     if (my !== seq) return;
-    const entries = found.map((o) => ({ o, times: localTimes(o, 3) })).sort(order);
+    const entries = found.map((o) => ({ o, f: frequency(o), times: localTimes(o, 3) })).sort(order);
     last = { key, entries, at: Date.now() };
     paint(entries);
     if (!S.online || !entries.length) return;

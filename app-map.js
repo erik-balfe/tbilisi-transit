@@ -308,7 +308,9 @@
   /* —— Bottom sheet (trip mode, mobile): peek / mid / full —— */
   function snapHeights() {
     const vh = window.innerHeight;
-    return { peek: 76, mid: Math.round(Math.min(vh * 0.46, 430)), full: Math.round(vh - 56) };
+    /* trip results lead with the full list of direct lines: give them room */
+    const mid = S.mode === "trip" ? Math.min(vh * 0.62, 540) : Math.min(vh * 0.46, 430);
+    return { peek: 76, mid: Math.round(mid), full: Math.round(vh - 56) };
   }
   function applySheetHeight(px, animate) {
     panel.classList.toggle("sheet-dragging", !animate);

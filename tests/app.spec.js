@@ -205,6 +205,7 @@ test("trip results list every direct line, not only the planner's few options", 
     body: JSON.stringify({ itineraries: [itin("550", 2), itin("371", 4)], direct: [] }),
   }));
   await page.route("**/v5/stoptimes**", (r) => r.abort());
+  await page.clock.setFixedTime(new Date("2026-10-19T12:00:00+04:00")); /* Monday noon: busy service */
   await page.goto("./?from=41.68663,44.84084&to=41.6756,44.8286");
   await dataReady(page);
   const sec = page.locator("#direct-lines");
@@ -216,14 +217,53 @@ test("trip results list every direct line, not only the planner's few options", 
   expect(new Set(codes).size).toBe(codes.length);   /* one chip per line */
   expect(codes).toContain("550");
   expect(codes.length).toBeGreaterThan(2);
+  /* everything is visible at once: no tap, no scrolling inside the sheet */
+  const vh = page.viewportSize().height;
+  const boxes = await sec.locator(".direct-chip").evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; }));
+  boxes.forEach((b) => { expect(b.top).toBeGreaterThan(0); expect(b.bottom).toBeLessThanOrEqual(vh); });
+  /* most frequent first, each chip says how often it runs */
+  const ns = (await sec.locator(".direct-chip").evaluateAll((els) => els.map((e) => Number(e.dataset.n))));
+  expect(ns).toEqual([...ns].sort((a, b) => b - a));
+  expect(ns[0]).toBeGreaterThan(ns[ns.length - 1] - 1);
+  await expect(sec.locator(".direct-chip").first().locator(".dc-every")).toHaveText(/^every \d+ min$/);
+  await expect(sec.locator(".direct-hint")).toContainText("Most frequent first");
+  await expect(sec.locator(".direct-hint")).toContainText(/about every \d+ min/);
   /* details: terminal, ride time, next departures */
   await sec.locator(".direct-toggle").click();
   const row = sec.locator('.direct-row[data-line="310"]');
   await expect(row).toBeVisible();
   await expect(row.locator(".dep-head")).toContainText("→");
   await expect(row.locator(".dep-via")).toContainText("min ride");
+  await expect(row.locator(".dep-via")).toContainText(/every \d+ min|rare|1 in 90 min/);
   /* tapping a chip opens that line from the boarding stop */
   await sec.locator('.direct-chip[data-line="310"]').click();
   await expect(page.locator("#line-view")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+
+/* Updates: the running version is shown, a newer one is announced with a Reload button, "Check for updates" answers. */
+test("version is shown; a newer published version shows an update bar; manual check says when current", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  let remote = null; /* null = real file */
+  await page.route(/app-version\.js\?probe=/, (r) => (remote
+    ? r.fulfill({ status: 200, contentType: "application/javascript", body: 'window.TT_VERSION = "' + remote + '";' })
+    : r.continue()));
+  await page.goto("./");
+  await dataReady(page);
+  const cur = await page.evaluate(() => window.TT_VERSION);
+  expect(cur).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
+  await page.evaluate(() => { window.__tt.setMode("trip"); });
+  await page.locator("#more-tools summary").click();
+  await expect(page.locator("#app-version")).toHaveText("Version " + cur);
+  await page.click("#check-update");
+  await expect(page.locator(".toast")).toContainText("latest version");
+  await expect(page.locator("#update-bar")).toBeHidden();
+  /* a newer version is published */
+  remote = "2999-01-01.1";
+  expect(await page.evaluate(() => window.__tt.checkForUpdate())).toBe("available");
+  await expect(page.locator("#update-bar")).toBeVisible();
+  await expect(page.locator("#update-btn")).toHaveText("Reload");
   expect(errors).toEqual([]);
 });
